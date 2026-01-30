@@ -1,0 +1,65 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "leaps"
+version = "0.1.0"
+description = "Learning Humanoid Locomotion from EMG-Based Latent Action Priors and Muscle Synergies"
+readme = "README.md"
+requires-python = ">=3.9"
+license = {text = "MIT"}
+authors = [
+    {name = "Lalitha Sivakumar", email = "lalitha.sivakumar@is.mpg.de"}
+]
+keywords = ["reinforcement learning", "biomechanics", "EMG", "muscle synergies", "humanoid control", "locomotion"]
+
+dependencies = [
+    "numpy>=1.24.0",
+    "scipy>=1.10.0",
+    "matplotlib>=3.7.0",
+    "scikit-learn>=1.3.0",
+    "torch>=2.0.0",
+    "gymnasium>=0.29.0",
+    "mujoco>=3.0.0",
+    "stable-baselines3>=2.1.0",
+    "tensorboard>=2.13.0",
+    "pandas>=2.0.0",
+    "h5py>=3.9.0",
+    "pyyaml>=6.0",
+    "tqdm>=4.65.0",
+    "imageio>=2.31.0",
+    "imageio-ffmpeg>=0.4.8",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4.0",
+    "pytest-cov>=4.1.0",
+    "black>=23.7.0",
+    "isort>=5.12.0",
+]
+wandb = ["wandb>=0.15.0"]
+all = ["pytest>=7.4.0", "black>=23.7.0", "wandb>=0.15.0"]
+
+[project.scripts]
+leaps-train = "leaps.scripts.train:main"
+leaps-eval = "leaps.scripts.evaluate:main"
+leaps-preprocess = "leaps.scripts.preprocess_data:main"
+leaps-render = "leaps.scripts.render:main"
+
+[project.urls]
+Homepage = "https://github.com/lsivakumar/leaps"
+Repository = "https://github.com/lsivakumar/leaps"
+
+[tool.black]
+line-length = 100
+target-version = ['py39', 'py310', 'py311']
+
+[tool.isort]
+profile = "black"
+line_length = 100
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-v --cov=src/leaps"

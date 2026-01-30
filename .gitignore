@@ -1,0 +1,42 @@
+# Python
+__pycache__/
+*.py[cod]
+*.so
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+
+# Data
+*.npy
+*.npz
+*.h5
+*.hdf5
+*.mat
+*.pkl
+data/raw/
+data/processed/
+
+# Experiments
+experiments/
+checkpoints/
+logs/
+wandb/
+tensorboard/
+results/
+renders/
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+
+# Cluster
+*.out
+*.err
+slurm-*
+condor-*
+
+# Environment
+.env
+venv/
