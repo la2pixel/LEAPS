@@ -1,5 +1,39 @@
-"""Data loading and preprocessing."""
-from leaps.data.preprocessor import EMGPreprocessor
-from leaps.data.loaders import load_camargo_dataset
+"""Data loading and preprocessing for the Camargo EMG dataset."""
 
-__all__ = ["EMGPreprocessor", "load_camargo_dataset"]
+from leaps.data.loaders import (
+    discover_trials,
+    load_camargo_dataset,
+    load_mat_table,
+    parse_camargo,
+)
+from leaps.data.metadata import SUBJECTS, SubjectInfo
+from leaps.data.processing import (
+    compute_emg_normalization,
+    find_stride_intervals,
+    normalize_emg,
+    process_subject,
+    process_trial_emg,
+    rectify_emg,
+    segment_strides,
+    time_normalize_stride,
+)
+
+__all__ = [
+    # Loaders
+    "discover_trials",
+    "load_camargo_dataset",
+    "load_mat_table",
+    "parse_camargo",
+    # Metadata
+    "SUBJECTS",
+    "SubjectInfo",
+    # Processing
+    "compute_emg_normalization",
+    "find_stride_intervals",
+    "normalize_emg",
+    "process_subject",
+    "process_trial_emg",
+    "rectify_emg",
+    "segment_strides",
+    "time_normalize_stride",
+]

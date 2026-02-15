@@ -3,11 +3,17 @@ __pycache__/
 *.py[cod]
 *.so
 *.egg-info/
+*.eggs/
 dist/
 build/
 .pytest_cache/
 
-# Data
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Data files
 *.npy
 *.npz
 *.h5
@@ -17,7 +23,7 @@ build/
 data/raw/
 data/processed/
 
-# Experiments
+# Experiments & outputs
 experiments/
 checkpoints/
 logs/
@@ -26,17 +32,34 @@ tensorboard/
 results/
 renders/
 
-# IDEs
+# IDEs & editors
 .vscode/
 .idea/
 *.swp
+*.swo
+*~
 
-# Cluster
+# Cluster job files
 *.out
 *.err
+*.log
 slurm-*
 condor-*
 
-# Environment
+# Environment & secrets
 .env
-venv/
+.env.*
+
+# Claude Code
+.claude/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temp
+tmp/
+*.tmp
+
+#Local folders
+scripts/plots
