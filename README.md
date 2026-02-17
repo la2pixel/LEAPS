@@ -32,14 +32,6 @@ synergies.fit(data)
 prior = LatentActionPrior(latent_dim=8)
 prior.fit(data)
 ```
-
-## Citation
-```bibtex
-@inproceedings{sivakumar2025leaps,
-  title={Learning Humanoid Locomotion from EMG-Based Latent Action Priors and Muscle Synergies},
-  author={Sivakumar, Lalitha and Badie, Nadine and Schmitt, Syn},
-  booktitle={International Conference on Learning Representations},
-  year={2025}
 }
 ```
 
