@@ -46,10 +46,116 @@ Data directories (gitignored): `data/raw/`, `data/processed/`, `experiments/`, `
 
 ## Current Focus
 
-The immediate priority is the **data pipeline**:
-1. Parse the raw Camargo dataset correctly (guided by the reference `.m` scripts)
-2. Write Python preprocessing scripts that faithfully replicate the MATLAB processing
-3. Validate that the Python output matches the MATLAB reference
+Data pipeline is complete. Current focus is **representation learning + RL integration**.
+
+### Existing Models (implemented)
+
+**Snapshot-level** (`models/pytorch_models.py`, trained via `scripts/train.py`):
+- AE: 11 → 2×latent → latent → 2×latent → 11 (Tanh activations)
+- VAE: Same + reparameterization, β=0.1 KL loss
+- MAE: AE with 50% random channel masking
+- Loss: MSE + lnorm_weight × Lnorm(z) (soft penalty outside [-1.2, 1.2])
+- **Known issue**: No sigmoid on decoder — outputs can exceed [0,1]
+
+**Stride-level** (`models/stride_models.py`, trained via `scripts/train_strides.py`):
+- Conv1D encoder: Conv(11→32, k=7) + ReLU → Conv(32→64, k=5) + ReLU → FC → latent
+- Conv1D decoder: FC → ConvTranspose layers → sigmoid output [0,1]
+- StrideVAE, StrideMAE variants (block masking: 15-point contiguous)
+
+**Sklearn** (`models/sklearn_models.py`): PCA, NMF baselines
+
+### AE Variant Strategies (to try all, pick winner empirically)
+
+Priority order based on theoretical fit for EMG latent action priors:
+
+1. **WAE-MMD** (Wasserstein AE with Maximum Mean Discrepancy)
+   - Replace KL divergence with MMD penalty against N(0,I)
+   - Optimal transport ≈ Hausdorff distance preservation at distribution level
+   - Sharper reconstructions than VAE, smooth latent space for RL
+   - ~20 lines change from existing AE
+   - Ref: Tolstikhin et al., 2018
+
+2. **Beta-VAE** (beta=0.01–0.1) — already have VAE, just tune beta lower
+   - Safe baseline, smooth latent, risk of blurring gait transitions at high beta
+
+3. **AE + soft-DTW reconstruction loss** (differentiable Dynamic Time Warping)
+   - Penalizes temporal shape mismatches, not just pointwise MSE
+   - Preserves peak timing and gait profile shape directly
+   - Packages: `tslearn` or `soft-dtw-cuda`
+   - Ref: Cuturi & Blondel, 2017
+
+4. **WAE-MMD + soft-DTW** — combine #1 and #3 for best distance + shape preservation
+
+5. **VQ-VAE** (Vector Quantized VAE)
+   - Discrete codebook → learned gait phase prototypes
+   - Great for interpretability, but discrete-continuous mismatch for RL
+   - Use as analytical tool alongside main model
+
+6. **Contractive AE** — Jacobian penalty for robustness to EMG noise
+   - Good as regularizer on top of another variant
+
+### Key Decisions
+- **Prefer stride-level models** (Conv1D) over snapshot for RL — they preserve temporal structure
+- **TCN backbone** is fastest for ~100 timestep gait cycles
+- **Sigmoid decoder** required for all models (muscle activations must be [0,1])
+- **Latent dim**: 4–8 (9 muscles, want compression but not too lossy)
+- **Evaluation**: Use gait-aware metrics (peak_timing_error, gait_profile_correlation, correlation_matrix_distance, latent_smoothness) — not just MSE/R²
+
+### Relevant Literature
+- PLAS (Zhou et al., 2020, CoRL) — VAE latent action space for offline RL
+- OPAL (Ajay et al., 2021, ICLR) — offline primitive discovery via VAE action priors
+- WAE (Tolstikhin et al., 2018, ICLR) — optimal transport for AE latent spaces
+- Soft-DTW (Cuturi & Blondel, 2017, ICML) — differentiable time series distance
+- MyoSuite (Vittorio et al., 2022) — musculoskeletal simulation benchmark
+
+### Reference Paper
+Hausdörfer et al. (2024) "Latent Action Priors for Locomotion with DRL" (arXiv:2410.03246)
+- Simple deterministic AE (1 hidden layer, tanh, MSE + Lnorm), latent_dim = action_dim / 2
+- Policy outputs z → frozen decoder → action, blended with residual: a = (1-w)*decode(z) + w*a_res
+- PPO with style reward (joint position matching) + task reward (velocity tracking)
+- LEAPS twist: EMG data replaces RL expert demos as the AE training source
+
+### Available Models (all registered, ready to train)
+
+**Snapshot-level** (train.py): PCA, NMF, AE, VAE, MAE, WAE
+**Stride-level** (train_strides.py): StridePCA, StrideNMF, StrideAE, StrideVAE, StrideMAE, StrideWAE
+
+### Training Commands
+```bash
+# Stride-level full sweep (recommended, ~10-20min on GPU)
+python -m leaps.scripts.train_strides \
+    --data /fast/lsivakumar/data/processed/emg_activations.h5 \
+    --wandb --wandb-project leaps \
+    --output-dir experiments/stride_sweep \
+    --epochs 150 --batch-size 128 --beta 0.05 \
+    --latent-dims 4 6 8 \
+    --models StridePCA StrideNMF StrideAE StrideVAE StrideMAE StrideWAE
+
+# Snapshot-level full sweep (~5min on GPU)
+python -m leaps.scripts.train \
+    --data /fast/lsivakumar/data/processed/emg_activations.h5 \
+    --wandb --wandb-project leaps \
+    --output-dir experiments/sweep \
+    --epochs 200 --batch-size 4096 --beta 0.05 \
+    --latent-dims 4 6 \
+    --models PCA NMF AE VAE MAE WAE
+
+# Plot reconstructions after training
+python -m leaps.scripts.plot_reconstructions \
+    --data /fast/lsivakumar/data/processed/emg_activations.h5 \
+    --checkpoint-dir experiments/stride_sweep/checkpoints \
+    --output-dir experiments/stride_sweep/plots \
+    --latent-dim 4
+```
+
+### Pipeline Flow
+```
+Raw EMG (11ch) → Rectify → BPF → Stride Segment (heel strike)
+→ Time Normalize (101 pts) → Min-Max Normalize → Clip 99th %ile → [0,1]
+→ Train Model (snapshot or stride) → Latent z
+→ EMGToMuscleMapper (11→18 muscles, bilateral) → MuJoCo muscle commands
+→ MuscleHumanoidEnv (gait10dof18musc) → RL training
+```
 
 ## Commands
 
@@ -86,6 +192,169 @@ pytest tests/test_specific.py -k "name"    # Run a single test
 - **Docstrings**: Use triple-quoted docstrings; include module-level docstrings in `__init__.py`
 - **Type hints**: Use Python 3.9+ syntax (e.g., `list[int]` not `List[int]`)
 - **Tests**: Place in `tests/` directory, pytest with `--cov=src/leaps`
+
+## LocoMuJoCo Integration
+
+### Task IDs
+- **Target**: `HumanoidMuscle.walk` (muscle-actuated humanoid walking)
+- Task ID format: `<environment>.<task>.<dataset_type>` (e.g., `HumanoidMuscle.walk.real`)
+- Defaults: missing task → "walk", missing dataset_type → "real"
+- Multi-age variant: `HumanoidMuscle4Ages.walk.<1-4>.real` (1=smallest, 4=adult)
+- List all: `LocoEnv.get_all_task_names()`
+- **DEPRECATION**: `HumanoidMuscle` is a deprecated wrapper for `SkeletonMuscle`. Use `SkeletonMuscle` class directly for code, but task ID `HumanoidMuscle.walk` still works.
+
+### Creating Environments
+```python
+# Direct LocoMuJoCo API
+from loco_mujoco import LocoEnv
+env = LocoEnv("HumanoidMuscle.walk.real")
+
+# Gymnasium API
+import loco_mujoco  # registers envs
+import gymnasium as gym
+env = gym.make("LocoMujoco", env_name="HumanoidMuscle.walk.real", render_mode="human")
+```
+
+### HumanoidMuscle / SkeletonMuscle Details
+- **92 muscle actuators** on lower limbs + **14 torque motors** (upper body, prefixed `mot_`)
+- Total action dim = 106 (92 muscles + 14 motors)
+- Action space in LocoMuJoCo: **[-1, 1]**, auto-scaled to MuJoCo's [0, 1] for muscles
+- Observation space: dim=36 (default, some obs disabled by default)
+- Walking task: target speed **1.25 m/s**; Running: **2.5 m/s**
+- Terminal state: robot falls (checked via orientation, CoM height, back joint)
+- XML: `loco_mujoco/models/skeleton/skeleton_muscle.xml`
+
+### 92 Lower-Limb Muscles (per leg, _r and _l suffixes)
+```
+glut_med1, glut_med2, glut_med3, glut_min1, glut_min2, glut_min3,
+semimem, semiten, bifemlh, bifemsh, sar, add_long, add_brev,
+add_mag1, add_mag2, add_mag3, tfl, pect, grac, glut_max1, glut_max2,
+glut_max3, iliacus, psoas, quad_fem, gem, peri, rect_fem, vas_med,
+vas_int, vas_lat, med_gas, lat_gas, soleus, tib_post, flex_dig,
+flex_hal, tib_ant, per_brev, per_long, per_tert, ext_dig, ext_hal
+```
+Plus trunk: `ercspn_r/l, intobl_r/l, extobl_r/l`
+
+### EMG → 92-Muscle Mapping (needs update from 18-muscle version)
+Our EMG has 11 channels (right leg). The 92-muscle model has much finer granularity:
+- gastrocmed → med_gas_r/l (+ lat_gas_r/l?)
+- tibialisanterior → tib_ant_r/l
+- soleus → soleus_r/l
+- vastusmedialis → vas_med_r/l; vastuslateralis → vas_lat_r/l (+ vas_int?)
+- rectusfemoris → rect_fem_r/l
+- bicepsfemoris → bifemlh_r/l + bifemsh_r/l
+- semitendinosus → semiten_r/l (+ semimem?)
+- gluteusmedius → glut_med1/2/3_r/l
+- gracilis → grac_r/l
+- rightexternaloblique → extobl_r/l
+- Unmapped muscles (no EMG): iliacus, psoas, add_long, add_brev, add_mag1/2/3, tfl, pect, glut_max1/2/3, glut_min1/2/3, sar, quad_fem, gem, peri, tib_post, flex_dig, flex_hal, per_brev, per_long, per_tert, ext_dig, ext_hal, ercspn, intobl, lat_gas
+- Upper body motors (14): set to 0 or default
+
+### Dataset Types
+- **real**: Motion capture data (no actions, may have mismatches like floating feet). Available for all envs.
+- **perfect**: Generated by best-performing baseline policy (has actions, no mismatches). Only some envs.
+- **preference**: Ranked trajectory sets from suboptimal policies (has actions). Only some envs.
+
+### Key APIs
+```python
+env.create_dataset()                              # Get expert dataset for imitation learning
+env.play_trajectory(n_steps_per_episode=500)      # Replay dataset positions (no dynamics)
+env.play_trajectory_from_velocity(n_episodes=30)  # Replay from velocities (verify consistency)
+env.action_space.shape[0]                         # Action dimensionality
+```
+
+### Important Notes
+- Datasets for imitation learning; rewards only used for evaluation (not training)
+- Each env has a default reward function, but custom rewards can be provided
+- Domain randomization available during training
+- Arms NOT included in observation space by default (perfect/preference datasets only for default settings)
+- LocoMuJoCo installed editable at `/home/lsivakumar/GitHub/Thesis/loco-mujoco/`
+
+### Custom Env for gait10dof18musc — Implementation Details
+
+**Decision**: Subclass `LocoEnv` directly, NOT `BaseSkeleton`.
+- `BaseSkeleton` assumes full 92-muscle skeleton with arms, box feet options, subtalar/mtp joints, hip_adduction/rotation, 3-DOF lumbar, etc.
+- Our model is a **2D sagittal-plane** humanoid: no free joint, no arms, 10 DOFs, 18 muscles
+- Root is 3 separate joints (pelvis_tx slide, pelvis_ty slide, pelvis_tilt hinge) — NOT a `freejoint`
+
+**Class hierarchy**: `Mujoco → Mjx → LocoEnv → Gait10dof18Musc` (in `src/leaps/envs/gait10dof_env.py`)
+
+**Key LocoMuJoCo base class files** (already explored, do NOT re-explore):
+- `loco_mujoco/core/mujoco_base.py` — `Mujoco` base: `load_mujoco()`, `step()`, `reset()`, `registered_envs`, `.register()`
+- `loco_mujoco/environments/base.py` — `LocoEnv`: trajectory support, `__init__(n_substeps, timestep, spec, actuation_spec, observation_spec, **core_params)`
+- `loco_mujoco/environments/humanoids/base_skeleton.py` — `BaseSkeleton`: reference for obs/action spec patterns, `@info_property` usage
+- `loco_mujoco/core/observations/` — `ObservationType.JointPos()`, `ObservationType.JointVel()`, `ObservationType.FreeJointPosNoXY()`, etc.
+- `loco_mujoco/core/control_functions/default.py` — `DefaultControl._unnormalize_action()`: maps [-1,1] → actuator ctrlrange. For muscles [0,1]: `ctrl = 0.5*(action+1)`
+- `loco_mujoco/core/terminal_state/` — `TerminalStateHandler` base class with `.register()` and `.registered` dict
+- `loco_mujoco/task_factories/rl_factory.py` — `RLFactory.make(env_name, terminal_state_type, goal_type, reward_type, **kwargs)`
+- `loco_mujoco/core/utils/` — `info_property` decorator, `mj_jntname2qposid()`
+
+**Constructor pattern** (from BaseSkeleton, adapt for our case):
+```python
+class Gait10dof18Musc(LocoEnv):
+    def __init__(self, spec=None, observation_spec=None, actuation_spec=None, **kwargs):
+        if spec is None:
+            spec = self.get_default_xml_file_path()
+        spec = mujoco.MjSpec.from_file(spec) if isinstance(spec, str) else spec
+        if observation_spec is None:
+            observation_spec = self._get_observation_specification(spec)
+        if actuation_spec is None:
+            actuation_spec = self._get_action_specification(spec)
+        super().__init__(spec=spec, actuation_spec=actuation_spec, observation_spec=observation_spec, **kwargs)
+```
+
+**Observation spec** (18 dims total):
+- Joint positions (8): pelvis_tilt, hip_flexion_r, knee_angle_r, ankle_angle_r, hip_flexion_l, knee_angle_l, ankle_angle_l, lumbar_extension
+  - pelvis_tx excluded (translation invariance), pelvis_ty included via velocity
+  - Constraint joints excluded (knee_r_translation1/2, muscle wrapping points)
+- Joint velocities (10): all 8 above + pelvis_tx, pelvis_ty
+- Use `ObservationType.JointPos("q_X", xml_name="X")` and `ObservationType.JointVel("dq_X", xml_name="X")`
+- Do NOT use `FreeJointPosNoXY` — no free joint exists
+
+**Action spec** (18 muscles, exact XML order):
+```python
+["hamstrings_r", "bifemsh_r", "glut_max_r", "iliopsoas_r", "rect_fem_r", "vasti_r",
+ "gastroc_r", "soleus_r", "tib_ant_r",
+ "hamstrings_l", "bifemsh_l", "glut_max_l", "iliopsoas_l", "rect_fem_l", "vasti_l",
+ "gastroc_l", "soleus_l", "tib_ant_l"]
+```
+
+**Critical overrides needed** (no free joint in 2D model):
+- `free_jnt_qpos_id` property → return `np.zeros((0, 7), dtype=int)` (empty, no free joint)
+- `free_jnt_qvel_id` property → return `np.zeros((0, 6), dtype=int)` (empty)
+- These prevent crashes in base class code that concatenates free joint arrays
+
+**@info_property values**:
+- `root_body_name` → `"pelvis"`
+- `upper_body_xml_name` → `"torso"`
+- `root_height_healthy_range` → `(0.5, 1.3)` (pelvis_ty default ~0.95)
+
+**Custom terminal state handler** (`src/leaps/envs/terminal_state.py`):
+- `HeightJointTerminalStateHandler(TerminalStateHandler)` — checks `pelvis_ty` qpos against healthy range
+- Default `HeightBasedTerminalStateHandler` assumes free joint → crashes on our model
+- Must call `.register()` to add to LocoMuJoCo's handler registry
+
+**generate() classmethod**:
+```python
+@classmethod
+def generate(cls, task=None, **kwargs):
+    kwargs.setdefault("terminal_state_type", "HeightJointTerminalStateHandler")
+    kwargs.setdefault("goal_type", "NoGoal")
+    kwargs.setdefault("reward_type", "NoReward")
+    return cls(**kwargs)
+```
+
+**Action normalization for EMG data**:
+- LocoMuJoCo expects actions in [-1, 1], auto-maps to [0, 1] for muscles
+- EMG mapper outputs [0, 1] → must convert: `loco_action = 2 * emg_action - 1`
+
+**Registration** (in `src/leaps/envs/__init__.py`):
+```python
+from leaps.envs.gait10dof_env import Gait10dof18Musc
+from leaps.envs.terminal_state import HeightJointTerminalStateHandler
+HeightJointTerminalStateHandler.register()
+Gait10dof18Musc.register()
+```
 
 ## Architecture Notes
 

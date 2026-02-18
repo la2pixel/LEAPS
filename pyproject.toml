@@ -49,9 +49,11 @@ all = [
 
 [project.scripts]
 leaps-train = "leaps.scripts.train:main"
-leaps-eval = "leaps.scripts.evaluate:main"
+leaps-train-strides = "leaps.scripts.train_strides:main"
 leaps-preprocess = "leaps.scripts.preprocess_data:main"
-leaps-render = "leaps.scripts.render:main"
+leaps-visualize = "leaps.scripts.visualize_emg:main"
+leaps-render = "leaps.scripts.render_comparison:main"
+leaps-simulate = "leaps.scripts.simulate_walking:main"
 
 [project.urls]
 Homepage = "https://github.com/lsivakumar/leaps"

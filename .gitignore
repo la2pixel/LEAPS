@@ -45,6 +45,14 @@ renders/
 *.log
 slurm-*
 condor-*
+condor_*
+cluster/logs/
+
+# MuJoCo model files (large meshes)
+models/humanoid/Geometry/
+
+# Notebooks (scratch)
+notebooks/
 
 # Environment & secrets
 .env
@@ -61,5 +69,14 @@ Thumbs.db
 tmp/
 *.tmp
 
-#Local folders
-scripts/plots
+# Generated plots
+plots/
+
+# Model weights / checkpoints
+*.pt
+*.pth
+*.ckpt
+
+# Apptainer / Singularity images
+*.sif
+*.sandbox

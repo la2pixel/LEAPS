@@ -9,14 +9,18 @@ from leaps.data.loaders import (
 from leaps.data.metadata import SUBJECTS, SubjectInfo
 from leaps.data.processing import (
     compute_emg_normalization,
+    compute_normalization,
     find_stride_intervals,
     normalize_emg,
-    process_subject,
+    process_mode_trials,
     process_trial_emg,
     rectify_emg,
     segment_strides,
     time_normalize_stride,
 )
+
+from leaps.data.dataset import EMGDataset, load_activations, train_val_split
+from leaps.data.stride_dataset import StrideDataset, load_strides, stride_train_val_split
 
 __all__ = [
     # Loaders
@@ -31,9 +35,18 @@ __all__ = [
     "compute_emg_normalization",
     "find_stride_intervals",
     "normalize_emg",
-    "process_subject",
+    "compute_normalization",
+    "process_mode_trials",
     "process_trial_emg",
     "rectify_emg",
     "segment_strides",
     "time_normalize_stride",
+    # Dataset (snapshot-level)
+    "EMGDataset",
+    "load_activations",
+    "train_val_split",
+    # Dataset (stride-level)
+    "StrideDataset",
+    "load_strides",
+    "stride_train_val_split",
 ]
