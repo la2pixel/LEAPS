@@ -86,7 +86,7 @@ def make_env(
     env = Gait10dof18Musc(
         terminal_state_type=terminal_type,
         goal_type="NoGoal",
-        reward_type="ForwardVelocityReward",
+        reward_type="WalkingReward",
         reward_params={"target_velocity": target_velocity},
         **viewer_kwargs,
     )
@@ -98,7 +98,7 @@ def make_env(
 # ---------------------------------------------------------------------------
 
 
-def simulate_open_loop(env, actions_sequence, max_steps=None, record=False):
+def simulate_open_loop(env, actions_sequence, max_steps=None, record=False, hang_mode=None):
     """Run open-loop simulation, cycling through a fixed action sequence.
 
     Args:
@@ -106,14 +106,53 @@ def simulate_open_loop(env, actions_sequence, max_steps=None, record=False):
         actions_sequence: (T, 18) array of muscle commands in [-1, 1].
         max_steps: Maximum simulation steps (default: len(actions_sequence)).
         record: If True, call env.render(record=True) each step.
+        hang_mode: None | "air" | "place"
+            None  — normal simulation, skeleton can fall.
+            "air" — pelvis pinned at 1.5m, ground disabled, joints damped.
+                    Observe pure leg swing without ground contact.
+            "place" — pelvis tx/ty pinned at natural standing height (0.95m),
+                    ground active. Walking in place with proper foot contact.
 
     Returns:
         Dict with qpos, qvel, obs, rewards, actions arrays.
     """
+    import mujoco
+
     if max_steps is None:
         max_steps = len(actions_sequence)
 
     obs = env.reset(key=jax.random.key(0))
+
+    # Reset to keyframe for a proper standing pose in both hang modes
+    if hang_mode is not None:
+        keyframe_id = mujoco.mj_name2id(env._model, mujoco.mjtObj.mjOBJ_KEY, "default-pose")
+        if keyframe_id >= 0:
+            mujoco.mj_resetDataKeyframe(env._model, env._data, keyframe_id)
+
+    if hang_mode == "air":
+        # Suspend at 1.5m — feet hang ~0.55m above ground
+        pelvis_tx0 = 0.0
+        pelvis_ty0 = 1.5
+
+        # Actually move the skeleton to hang height before first step
+        env._data.qpos[0] = pelvis_tx0
+        env._data.qpos[1] = pelvis_ty0
+        env._data.qvel[:] = 0.0
+        mujoco.mj_forward(env._model, env._data)
+
+        # Disable ground: no contact, not visible
+        ground_id = mujoco.mj_name2id(env._model, mujoco.mjtObj.mjOBJ_GEOM, "ground-plane")
+        if ground_id >= 0:
+            env._model.geom_contype[ground_id] = 0
+            env._model.geom_conaffinity[ground_id] = 0
+            env._model.geom_rgba[ground_id, 3] = 0.0
+
+
+    elif hang_mode == "place":
+        # Pin at natural standing height, ground stays active
+        pelvis_tx0 = 0.0
+        pelvis_ty0 = float(env._data.qpos[1])  # 0.95m from keyframe
+
     if record:
         env.render(record=True)
 
@@ -127,6 +166,13 @@ def simulate_open_loop(env, actions_sequence, max_steps=None, record=False):
         action = actions_sequence[step % len(actions_sequence)]
         obs, reward, terminated, truncated, info = env.step(np.asarray(action))
 
+        if hang_mode is not None:
+            env._data.qpos[0] = pelvis_tx0
+            env._data.qpos[1] = pelvis_ty0
+            env._data.qvel[0] = 0.0
+            env._data.qvel[1] = 0.0
+            mujoco.mj_forward(env._model, env._data)
+
         if record:
             env.render(record=True)
 
@@ -137,9 +183,10 @@ def simulate_open_loop(env, actions_sequence, max_steps=None, record=False):
         all_actions.append(np.asarray(action))
 
         if terminated or truncated:
-            print(f"  Episode ended at step {step + 1} "
-                  f"(terminated={terminated}, truncated={truncated})")
-            break
+            if hang_mode is None:
+                print(f"  Episode ended at step {step + 1} "
+                      f"(terminated={terminated}, truncated={truncated})")
+                break
 
     return {
         "obs": np.array(all_obs),
@@ -226,10 +273,14 @@ def cmd_emg_replay(args):
     max_steps = int(args.duration / dt) if args.duration else len(actions_seq)
     terminal = "disabled" if args.no_terminal else "enabled"
     print(f"  dt={dt:.4f}s, {max_steps} steps (~{max_steps * dt:.1f}s), terminal={terminal}")
+    if args.hang_mode == "air":
+        print("  Hang mode: air — pelvis at 1.5m, no ground, joints damped")
+    elif args.hang_mode == "place":
+        print("  Hang mode: place — walking in place at 0.95m, ground active")
     if args.record:
         print(f"  Recording video to {video_dir}/{video_name}.mp4")
 
-    results = simulate_open_loop(env, actions_seq, max_steps=max_steps, record=args.record)
+    results = simulate_open_loop(env, actions_seq, max_steps=max_steps, record=args.record, hang_mode=args.hang_mode)
     metrics = compute_sim_metrics(results)
     _print_metrics(metrics, "EMG Replay")
 
@@ -416,9 +467,12 @@ def cmd_ppo(args):
             "MlpPolicy",
             env,
             verbose=1,
-            n_steps=2048,
-            batch_size=64,
+            n_steps=4096,
+            batch_size=256,
             learning_rate=3e-4,
+            ent_coef=0.01,
+            gamma=0.99,
+            gae_lambda=0.95,
             tensorboard_log=str(output_dir / "tb_logs"),
             device="auto",
         )
@@ -488,6 +542,106 @@ def cmd_ppo(args):
 
 
 # ---------------------------------------------------------------------------
+# Record PPO policy video via LocoMuJoCo
+# ---------------------------------------------------------------------------
+
+
+def cmd_record_ppo(args):
+    """Record a trained PPO policy as video using LocoMuJoCo's renderer."""
+    from stable_baselines3 import PPO
+
+    output_dir = Path(args.output_dir)
+    video_dir = output_dir / "videos"
+
+    print(f"=== Record PPO ({args.variant}) ===")
+
+    # Find model
+    model_path = output_dir / f"ppo_{args.variant}_final.zip"
+    if not model_path.exists():
+        ckpt_dir = output_dir / "checkpoints"
+        if ckpt_dir.exists():
+            ckpts = sorted(ckpt_dir.glob(f"ppo_{args.variant}_*.zip"))
+            if ckpts:
+                model_path = ckpts[-1]
+        if not model_path.exists():
+            print(f"  ERROR: No model found at {model_path}")
+            return
+    print(f"  Model: {model_path}")
+
+    # Create LocoMuJoCo env with recorder
+    video_name = f"ppo_{args.variant}"
+    env = make_env(
+        record=True,
+        video_path=str(video_dir),
+        video_name=video_name,
+        no_terminal=False,
+        target_velocity=1.25,
+    )
+
+    # Load decoder for latent variant
+    decoder_fn = None
+    if args.variant == "latent":
+        if args.decoder_checkpoint is None:
+            raise ValueError("--decoder-checkpoint required for latent variant")
+        from leaps.training.stride_trainer import build_stride_model
+
+        ae_model = build_stride_model("StrideFlatAE", args.latent_dim)
+        ae_model.load(args.decoder_checkpoint)
+        ae_model._module.eval()
+        decoder_fn = ae_model.decode
+
+    # Load PPO — we need a dummy gym env just for PPO.load
+    from leaps.envs.gym_wrapper import Gait10dof18MuscGymEnv, LatentActionGymEnv
+
+    if args.variant == "direct":
+        dummy_env = Gait10dof18MuscGymEnv(max_episode_steps=1000)
+    else:
+        dummy_env = LatentActionGymEnv(
+            decoder_fn=decoder_fn, latent_dim=args.latent_dim, max_episode_steps=1000,
+        )
+    ppo_model = PPO.load(str(model_path), env=dummy_env)
+
+    from leaps.envs.emg_mapping import EMGToMuscleMapper
+
+    mapper = EMGToMuscleMapper()
+
+    # Run episodes and record
+    n_episodes = args.n_episodes
+    for ep in range(n_episodes):
+        obs = env.reset(key=jax.random.key(ep))
+        env.render(record=True)
+        ep_reward = 0.0
+
+        for step in range(args.max_steps):
+            # Get action from PPO
+            obs_32 = np.asarray(obs, dtype=np.float32)
+            action, _ = ppo_model.predict(obs_32, deterministic=True)
+
+            # For latent variant: decode z → muscles → LocoMuJoCo [-1,1]
+            if args.variant == "latent" and decoder_fn is not None:
+                z = np.asarray(action, dtype=np.float32)
+                decoded = decoder_fn(z.reshape(1, -1))  # (1, 1111)
+                stride = decoded.reshape(101, 11)
+                emg_mean = stride.mean(axis=0)  # (11,)
+                muscles_01 = mapper.map_emg_to_muscles(emg_mean)  # (18,)
+                loco_action = (2.0 * muscles_01 - 1.0).astype(np.float32)
+            else:
+                loco_action = np.asarray(action, dtype=np.float32)
+
+            obs, reward, terminated, truncated, info = env.step(loco_action)
+            env.render(record=True)
+            ep_reward += float(reward)
+
+            if terminated or truncated:
+                break
+
+        print(f"  Episode {ep + 1}: reward={ep_reward:.2f}, steps={step + 1}")
+
+    env.stop()
+    print(f"  Video saved to {video_dir}/{video_name}.mp4")
+
+
+# ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
 
@@ -505,6 +659,9 @@ def main(argv=None):
     p_emg.add_argument("--duration", type=float, default=10.0, help="Simulation duration (seconds)")
     p_emg.add_argument("--seed", type=int, default=42)
     p_emg.add_argument("--no-terminal", action="store_true", help="Disable early termination")
+    p_emg.add_argument("--hang-mode", choices=["air", "place"], default=None,
+                       help="air: suspend at 1.5m no ground (observe leg swing); "
+                            "place: fix pelvis at 0.95m with ground (walking in place)")
     p_emg.add_argument("--record", action="store_true", help="Record MP4 video via LocoMuJoCo")
 
     # --- representation ---
@@ -533,6 +690,15 @@ def main(argv=None):
     p_ppo.add_argument("--wandb", action="store_true")
     p_ppo.add_argument("--wandb-project", default="leaps")
 
+    # --- record-ppo ---
+    p_rec = subparsers.add_parser("record-ppo", help="Record trained PPO policy as video.")
+    p_rec.add_argument("--variant", choices=["direct", "latent"], required=True)
+    p_rec.add_argument("--output-dir", required=True, help="PPO experiment directory")
+    p_rec.add_argument("--decoder-checkpoint", default=None, help="StrideFlatAE checkpoint (for latent)")
+    p_rec.add_argument("--latent-dim", type=int, default=9)
+    p_rec.add_argument("--n-episodes", type=int, default=1)
+    p_rec.add_argument("--max-steps", type=int, default=1000)
+
     args = parser.parse_args(argv)
 
     if args.command == "emg-replay":
@@ -543,6 +709,8 @@ def main(argv=None):
         if not args.train and not args.eval:
             parser.error("At least one of --train or --eval required for ppo command.")
         cmd_ppo(args)
+    elif args.command == "record-ppo":
+        cmd_record_ppo(args)
 
 
 if __name__ == "__main__":

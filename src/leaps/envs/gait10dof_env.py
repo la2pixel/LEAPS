@@ -18,6 +18,26 @@ from loco_mujoco.core.utils import info_property
 from loco_mujoco.environments import LocoEnv
 
 
+# Real DOF joint angles for a right-heel-strike initial pose.
+# The wrapping-path constraint joints (knee translations, vasti/gastroc/iliopsoas
+# waypoints) are LEFT at their keyframe-0 defaults — the very stiff equality
+# constraints (solimp=0.9999) snap them to the correct positions within 1-2 steps.
+# Sign convention: positive hip_flexion = leg forward; knee_angle < 0 = flexion.
+_HEELSTRIKE_POSE = {
+    "pelvis_tilt":      -0.05,   # slight forward lean
+    "hip_flexion_r":    +0.30,   # right leg forward ~17°
+    "knee_angle_r":     -0.05,   # nearly extended
+    "ankle_angle_r":    +0.10,   # dorsiflexed for heel contact
+    "hip_flexion_l":    -0.15,   # left leg behind ~9° (push-off)
+    "knee_angle_l":     -0.35,   # 20° flexion (beginning of swing)
+    "ankle_angle_l":    -0.40,   # plantarflexed ~23° (push-off)
+    "lumbar_extension":  0.0,
+}
+
+# Forward walking speed matching EMG recording conditions.
+_INIT_FORWARD_VELOCITY = 1.25  # m/s
+
+
 # Absolute path to the XML model
 _MODEL_DIR = Path(__file__).resolve().parent.parent.parent.parent / "models" / "humanoid"
 _DEFAULT_XML = str(_MODEL_DIR / "gait10dof18musc.xml")
@@ -129,21 +149,57 @@ class Gait10dof18Musc(LocoEnv):
     def root_height_healthy_range(self) -> tuple:
         return (0.5, 1.3)
 
-    # ── Reset to keyframe pose ───────────────────────────────────────────
+    # ── Reset to heel-strike pose ────────────────────────────────────────
 
     def _reset_carry(
         self, model: MjModel, data: MjData, carry: Any
     ) -> Tuple[MjData, Any]:
-        """Load the default keyframe pose on reset.
+        """Reset to a right-heel-strike pose with forward walking velocity.
 
-        LocoMuJoCo's base reset uses mj_resetData which zeros qpos.
-        Our model needs the keyframe pose (pelvis_ty=0.95, constraint joints
-        at their default values) to start in a valid standing configuration.
+        Why: the default keyframe is a symmetric standing pose at rest (v=0).
+        EMG data was recorded during steady-state walking at ~1.25 m/s, so
+        starting from rest causes an immediate mismatch that leads to falling.
+
+        Steps:
+        1. Load keyframe-0 to get correct pelvis height and wrapping-path
+           constraint joints at their 0° defaults.
+        2. Override the real DOF joints to a heel-strike configuration
+           (asymmetric legs, right foot leading).
+        3. Set pelvis_tx velocity to match EMG recording speed (1.25 m/s).
+        4. The very stiff equality constraints (solimp=0.9999) will snap the
+           wrapping-path joints to their correct positions within 1-2 steps —
+           no need to compute them manually.
         """
         data, carry = super()._reset_carry(model, data, carry)
+
+        # Step 1: base pose from keyframe (pelvis_ty=0.95, constraint joints)
         if model.nkey > 0:
             mujoco.mj_resetDataKeyframe(model, data, 0)
-            mujoco.mj_forward(model, data)
+
+        # Step 2: override real DOF joints for heel-strike asymmetry
+        for jnt_name, angle in _HEELSTRIKE_POSE.items():
+            jid = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_JOINT, jnt_name)
+            if jid >= 0:
+                data.qpos[model.jnt_qposadr[jid]] = angle
+
+        # Step 3: lower pelvis so the right heel is exactly at ground (y=0).
+        # With hip_flexion_r > 0 the leg swings forward, lifting the heel above
+        # the default keyframe height. Without this correction the foot falls
+        # onto the ground at reset and the braking impulse tips the body backward.
+        mujoco.mj_kinematics(model, data)
+        calcn_r_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "calcn_r")
+        if calcn_r_id >= 0:
+            # World z = height (pelvis quat rotates local-y → world-z)
+            heel_z = float(data.xpos[calcn_r_id, 2])
+            pelvis_ty_jid = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_JOINT, "pelvis_ty")
+            data.qpos[model.jnt_qposadr[pelvis_ty_jid]] -= heel_z
+
+        # Step 4: forward velocity matching EMG recording conditions
+        pelvis_tx_jid = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_JOINT, "pelvis_tx")
+        if pelvis_tx_jid >= 0:
+            data.qvel[model.jnt_dofadr[pelvis_tx_jid]] = _INIT_FORWARD_VELOCITY
+
+        mujoco.mj_forward(model, data)
         return data, carry
 
     # ── Override free joint properties (no free joint in 2D model) ─────

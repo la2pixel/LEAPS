@@ -750,23 +750,24 @@ class StrideFlatAE(_StrideModelBase):
 
     Pipeline:
         1. Flatten stride (101, 11) → 1111-dim vector
-        2. Encoder: 1111 → 512 → ReLU → 256 → ReLU → latent_dim → Tanh
-        3. Decoder: latent_dim → 256 → ReLU → 512 → ReLU → 1111 → Sigmoid
+        2. Encoder: 1111 → 512 → ReLU → 256 → ReLU → latent_dim
+        3. Decoder: latent_dim → 256 → ReLU → 512 → ReLU → 1111
         4. Reshape back to (101, 11)
 
     Design choices:
-        - Tanh on latent: bounds z to [-1, 1] for RL policy compatibility.
-          The RL policy will output z directly via tanh activation.
-        - Sigmoid on output: constrains reconstructions to [0, 1], matching
-          the range of preprocessed EMG activations.
+        - Linear output (no sigmoid); caller clamps to [0,1] before EMG use.
+          Sigmoid was removed — it caused flat gradients near 0/1 which hurt
+          reconstruction quality for EMG activations.
+        - No tanh on latent bottleneck: unbounded latent preserves more
+          information; RL policy can apply tanh externally if needed.
         - MSE loss only: no regularization beyond the architecture itself.
-          Hausdörfer uses Lnorm but tanh already handles bounding.
+          Hausdörfer uses Lnorm but we rely on data normalization instead.
         - Two hidden layers (512, 256): one more than Hausdörfer's original
           (which has action_dim ~30). We need the extra capacity for our
           1111-dim input, but keep it simple — no batch norm, no dropout.
 
     For RL integration:
-        - decode(z) maps z ∈ [-1,1]^latent_dim → activations ∈ [0,1]^1111
+        - decode(z) maps z ∈ [-1,1]^latent_dim → unbounded floats^1111 (clamp before use)
         - Freeze decoder weights, let policy learn which z to output
         - Optionally blend with residual: a = (1-w)*decode(z) + w*a_residual
     """
@@ -872,22 +873,23 @@ class StrideFlatAE(_StrideModelBase):
 
     @torch.no_grad()
     def decode(self, z: np.ndarray) -> np.ndarray:
-        """Decode latent z → muscle activations clipped to [0, 1].
+        """Decode latent z → muscle activations (linear output, no sigmoid).
 
         This is the RL interface: policy outputs z ∈ [-1,1]^latent_dim,
         frozen decoder produces muscle activations for the humanoid.
         Output shape: (batch, 1111) or (1111,) matching input z shape.
+        Caller is responsible for clamping to [0, 1] (e.g. EMGToMuscleMapper).
         """
         self._module.eval()
         z_t = torch.as_tensor(z, dtype=torch.float32, device=self.device)
-        return np.clip(self.decoder(z_t).cpu().numpy(), 0.0, 1.0)
+        return self.decoder(z_t).cpu().numpy()
 
     @torch.no_grad()
     def reconstruct(self, x: np.ndarray) -> np.ndarray:
         self._module.eval()
         x_flat = self._to_tensor(x.reshape(x.shape[0], -1))
         z = self.encoder(x_flat)
-        x_hat = np.clip(self.decoder(z).cpu().numpy(), 0.0, 1.0)
+        x_hat = self.decoder(z).cpu().numpy()
         return x_hat.reshape(-1, self.stride_len, self.n_channels)
 
 

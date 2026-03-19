@@ -19,10 +19,10 @@ from leaps.envs.gait10dof_env import Gait10dof18Musc
 
 
 def _make_loco_env(target_velocity: float = 1.25, **kwargs) -> Gait10dof18Musc:
-    """Create a Gait10dof18Musc env with ForwardVelocityReward."""
+    """Create a Gait10dof18Musc env with WalkingReward."""
     kwargs.setdefault("terminal_state_type", "HeightJointTerminalStateHandler")
     kwargs.setdefault("goal_type", "NoGoal")
-    kwargs.setdefault("reward_type", "ForwardVelocityReward")
+    kwargs.setdefault("reward_type", "WalkingReward")
     kwargs.setdefault("reward_params", {"target_velocity": target_velocity})
     return Gait10dof18Musc(**kwargs)
 
@@ -156,11 +156,13 @@ class LatentActionGymEnv(gym.Env):
     def _decode_action(self, z: np.ndarray) -> np.ndarray:
         """Decode latent z to 18-dim muscle command in [-1, 1].
 
-        Pipeline: z → decode → (1111,) → reshape (101, 11) → mean over time
+        Pipeline: z → decode → (1111,) → clip [0,1] → reshape (101, 11) → mean over time
         → (11,) EMG → EMGToMuscleMapper → (18,) in [0,1] → scale to [-1,1].
+
+        Note: decoder_fn may return unbounded values; clipped to [0,1] here before EMG mapping.
         """
-        # Decode: (latent_dim,) → (1111,) in [0, 1]
-        decoded = self._decoder_fn(z.reshape(1, -1))  # (1, 1111)
+        # Decode: (latent_dim,) → (1111,), clip to [0,1] for EMG interface
+        decoded = np.clip(self._decoder_fn(z.reshape(1, -1)), 0.0, 1.0)  # (1, 1111)
         stride = decoded.reshape(101, 11)  # (101, 11)
 
         # Average over stride to get single EMG snapshot
