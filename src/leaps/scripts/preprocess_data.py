@@ -1,27 +1,33 @@
 """Preprocess raw Camargo EMG data into autoencoder-ready HDF5.
 
 Runs the full STRIDES.m pipeline in Python: rectify → normalize → segment →
-time-normalize → flatten. Processes ALL 4 locomotion modes (treadmill,
-levelground, ramp, stair). Normalization is computed from treadmill at 1.35 m/s
-and applied to all modes (matching STRIDES.m).
+time-normalize → clip [0,1] → store. Processes ALL 4 locomotion modes
+(treadmill, levelground, ramp, stair). Normalization is computed from treadmill
+at 1.35 m/s and applied to all modes (matching STRIDES.m).
 
 ## Output HDF5 structure
 
     /activations          — (N, 11) float64 — ALL subjects & modes pooled.
     │                       Each row = one time-point snapshot of 11 muscles.
     │                       This is the autoencoder's training set.
+    │                       Values are clipped to [0, 1].
     │
     ├── attrs:
     │   └── emg_channels  — list of 11 muscle names (column labels)
     │
     /stride_modes         — (M,) string — mode label per stride (e.g. "treadmill")
     /stride_subjects      — (M,) string — subject ID per stride (e.g. "AB09")
+    /stride_speeds        — (M,) float64 — mean treadmill speed per stride (m/s),
+    │                       NaN for non-treadmill modes.
     │                       M = N / 101 (each stride = 101 time points)
     │
-    /{subject}/strides    — (n_strides, 101, 11) per-subject stride profiles
-    /{subject}/modes      — (n_strides,) string — mode label per stride
-    /{subject}/min_vals   — (11,) normalization min per channel
-    /{subject}/max_vals   — (11,) normalization max per channel
+    /{subject}/strides       — (n_strides, 101, 11) per-subject stride profiles,
+    │                          values clipped to [0, 1].
+    /{subject}/modes         — (n_strides,) string — mode label per stride
+    /{subject}/speeds        — (n_strides,) float64 — treadmill speed or NaN
+    /{subject}/trial_indices — (n_strides,) int32 — trial file index within mode
+    /{subject}/min_vals      — (11,) normalization min per channel
+    /{subject}/max_vals      — (11,) normalization max per channel
 
 ## How to inspect the output
 
@@ -46,12 +52,13 @@ Usage:
 import argparse
 import logging
 import sys
+from pathlib import Path
 
 import h5py
 import numpy as np
 
 from leaps.data import discover_trials, load_mat_table
-from leaps.data.loaders import ALL_SUBJECTS
+from leaps.data.loaders import ALL_SUBJECTS, extract_condition_labels
 from leaps.data.metadata import ALL_MODES, EMG_CHANNELS
 from leaps.data.processing import compute_normalization, process_mode_trials
 
@@ -90,6 +97,8 @@ def main() -> None:
     all_activations = []
     all_stride_modes = []
     all_stride_subjects = []
+    all_stride_speeds = []
+    all_stride_conditions = []
 
     with h5py.File(args.output, "w") as hf:
         hf.attrs["emg_channels"] = EMG_CHANNELS
@@ -122,6 +131,9 @@ def main() -> None:
             # --- Step 2: process all modes with shared normalization ---
             subj_strides = []
             subj_modes = []
+            subj_speeds = []
+            subj_trial_indices = []
+            subj_conditions = []
 
             for mode in ALL_MODES:
                 if mode not in subj_trials:
@@ -142,14 +154,40 @@ def main() -> None:
                     logger.warning("  %s/%s: some files failed to parse", subj, mode)
                     continue
 
-                # For treadmill, pass conditions for speed-based filtering
-                cond_tables = None
-                if mode == "treadmill":
-                    cond_tables = tm_cond
+                # Load conditions tables for ALL modes:
+                #   - treadmill: used for speed-based stride filtering
+                #   - others:    used for per-sample label time-alignment
+                cond_files = sorted(mode_data.get("conditions", []))
+                cond_tables = [load_mat_table(f) for f in cond_files] if cond_files else None
 
-                strides_3d = process_mode_trials(
+                # Extract condition labels for non-treadmill modes.
+                # For treadmill the condition is derived from the numeric Speed column.
+                condition_labels = None
+                if mode != "treadmill" and cond_files:
+                    condition_labels = []
+                    for cf, ct in zip(cond_files, (cond_tables or [])):
+                        # Pass n_rows so per-sample reconstruction can be attempted
+                        n_rows = len(ct.get("Header", [])) if ct else None
+                        label = extract_condition_labels(cf, mode, n_rows=n_rows)
+                        condition_labels.append(label)
+                        if label is None:
+                            logger.debug(
+                                "  %s/%s: no condition label for %s",
+                                subj, mode, Path(cf).name,
+                            )
+                        else:
+                            n_labels = len(label) if isinstance(label, list) else 1
+                            logger.debug(
+                                "  %s/%s: %s → %s (%d samples)",
+                                subj, mode, Path(cf).name,
+                                label if isinstance(label, str) else f"[{label[0]}…]",
+                                n_labels,
+                            )
+
+                strides_3d, mode_speeds, mode_trial_indices, mode_conditions = process_mode_trials(
                     emg_tables, gc_tables, min_vals, max_vals,
                     cond_tables=cond_tables,
+                    condition_labels=condition_labels,
                 )
 
                 n_strides = strides_3d.shape[0]
@@ -157,9 +195,20 @@ def main() -> None:
                     logger.debug("  %s/%s: 0 strides after filtering", subj, mode)
                     continue
 
+                # Log condition distribution for this mode
+                if mode != "treadmill":
+                    from collections import Counter
+                    cond_counts = Counter(mode_conditions)
+                    dist_str = "  ".join(f"{k}:{v}" for k, v in sorted(cond_counts.items()))
+                    logger.info("  %s/%s: %d strides  [%s]", subj, mode, n_strides, dist_str)
+                else:
+                    logger.info("  %s/%s: %d strides", subj, mode, n_strides)
+
                 subj_strides.append(strides_3d)
                 subj_modes.extend([mode] * n_strides)
-                logger.info("  %s/%s: %d strides", subj, mode, n_strides)
+                subj_speeds.append(mode_speeds)
+                subj_trial_indices.append(mode_trial_indices)
+                subj_conditions.extend(mode_conditions)
 
             if not subj_strides:
                 logger.warning("Skipping %s: no valid strides across all modes", subj)
@@ -167,19 +216,30 @@ def main() -> None:
 
             # Concatenate all modes for this subject
             all_strides = np.concatenate(subj_strides, axis=0)
+            all_speeds = np.concatenate(subj_speeds, axis=0)
+            all_trial_indices = np.concatenate(subj_trial_indices, axis=0)
             activations = all_strides.reshape(-1, all_strides.shape[-1])
 
             # Write per-subject data
             grp = hf.create_group(subj)
             grp.create_dataset("strides", data=all_strides, compression="gzip")
-            dt = h5py.string_dtype()
-            grp.create_dataset("modes", data=np.array(subj_modes, dtype=object), dtype=dt)
+            str_dt = h5py.string_dtype()
+            grp.create_dataset("modes", data=np.array(subj_modes, dtype=object), dtype=str_dt)
+            grp.create_dataset("speeds", data=all_speeds)       # NaN for non-treadmill
+            grp.create_dataset("trial_indices", data=all_trial_indices)
+            grp.create_dataset(
+                "conditions",
+                data=np.array(subj_conditions, dtype=object),
+                dtype=str_dt,
+            )
             grp.create_dataset("min_vals", data=min_vals)
             grp.create_dataset("max_vals", data=max_vals)
 
             all_activations.append(activations)
             all_stride_modes.extend(subj_modes)
             all_stride_subjects.extend([subj] * len(subj_modes))
+            all_stride_speeds.extend(all_speeds.tolist())
+            all_stride_conditions.extend(subj_conditions)
 
             logger.info(
                 "  %s total: %d strides, %d snapshots",
@@ -191,12 +251,20 @@ def main() -> None:
             pooled = np.concatenate(all_activations, axis=0)
             hf.create_dataset("activations", data=pooled, compression="gzip")
 
-            dt = h5py.string_dtype()
+            str_dt = h5py.string_dtype()
             hf.create_dataset(
-                "stride_modes", data=np.array(all_stride_modes, dtype=object), dtype=dt,
+                "stride_modes", data=np.array(all_stride_modes, dtype=object), dtype=str_dt,
             )
             hf.create_dataset(
-                "stride_subjects", data=np.array(all_stride_subjects, dtype=object), dtype=dt,
+                "stride_subjects", data=np.array(all_stride_subjects, dtype=object), dtype=str_dt,
+            )
+            hf.create_dataset(
+                "stride_speeds", data=np.array(all_stride_speeds, dtype=np.float64),
+            )
+            hf.create_dataset(
+                "stride_conditions",
+                data=np.array(all_stride_conditions, dtype=object),
+                dtype=str_dt,
             )
 
             logger.info(

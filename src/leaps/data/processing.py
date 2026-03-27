@@ -346,8 +346,9 @@ def process_mode_trials(
     min_vals: np.ndarray,
     max_vals: np.ndarray,
     cond_tables: list[dict[str, np.ndarray]] | None = None,
+    condition_labels: list[str | list[str] | None] | None = None,
     fs: int = 1000,
-) -> np.ndarray:
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, list[str]]:
     """Rectify, segment, normalize, and time-normalize trials for any mode.
 
     For treadmill (when cond_tables provided with Speed): filters out
@@ -356,19 +357,44 @@ def process_mode_trials(
     For non-treadmill (no cond_tables or no Speed column): uses heuristic
     filtering based on stride duration and EMG amplitude.
 
+    Normalization clips output to [0, 1]. Values above 1.0 (e.g. from strides
+    at speeds higher than the 1.35 m/s reference) are clipped rather than kept
+    as out-of-range values that would corrupt AE training.
+
     Args:
-        emg_tables:  load_mat_table output for each EMG trial.
-        gc_tables:   load_mat_table output for each gcRight trial.
-        min_vals:    Per-channel normalization min (from compute_normalization).
-        max_vals:    Per-channel normalization max.
-        cond_tables: Conditions tables (only needed for treadmill speed filtering).
-        fs:          EMG sampling rate.
+        emg_tables:        load_mat_table output for each EMG trial.
+        gc_tables:         load_mat_table output for each gcRight trial.
+        min_vals:          Per-channel normalization min (from compute_normalization).
+        max_vals:          Per-channel normalization max.
+        cond_tables:       Conditions tables. For treadmill: used for speed
+                           filtering. For non-treadmill: used to time-align
+                           per-sample condition labels (if provided).
+        condition_labels:  Optional per-trial condition labels, one entry per
+                           trial file. Each entry can be:
+                             str        — single label for the whole trial
+                                          (e.g. "normal", "5.2", "102")
+                             list[str]  — per-sample labels aligned with
+                                          cond_tables[i]["Header"]
+                             None       — unknown
+                           For treadmill, this is ignored; speed is used instead.
+        fs:                EMG sampling rate.
 
     Returns:
-        strides_3d: (n_strides, 101, 11) array of normalized stride profiles.
+        strides_3d:    (n_strides, 101, 11) array, values clipped to [0, 1].
+        speeds:        (n_strides,) float64. Treadmill speed (m/s) or NaN.
+        trial_indices: (n_strides,) int32. Trial file index (0-based).
+        conditions:    len-n_strides list of str. Condition label per stride:
+                         treadmill   — "1.20" (speed formatted to 2 decimal places)
+                         levelground — "slow" | "normal" | "fast"
+                         ramp        — "5.2" | "5.2_up" | "5.2_down"
+                         stair       — "102" | "102_up" | "102_down"
+                         unknown     — extraction failed
     """
     n_trials = len(emg_tables)
-    good_strides = []
+    good_strides: list[np.ndarray] = []
+    good_speeds: list[float] = []
+    good_trial_indices: list[int] = []
+    good_conditions: list[str] = []
 
     for i in range(n_trials):
         _, rect_strides = process_trial_emg(emg_tables[i], gc_tables[i], fs)
@@ -377,22 +403,35 @@ def process_mode_trials(
 
         # Get speed data if available (treadmill mode)
         has_speed = False
+        cond_header: np.ndarray | None = None
+        speed: np.ndarray | None = None
         if cond_tables is not None and i < len(cond_tables):
             cond_header = cond_tables[i].get("Header")
             speed = cond_tables[i].get("Speed")
             has_speed = cond_header is not None and speed is not None
 
+        # Prepare condition label source for this trial
+        trial_cond_label: str | list[str] | None = (
+            condition_labels[i]
+            if condition_labels is not None and i < len(condition_labels)
+            else None
+        )
+
         for stride, (t_start, t_end) in zip(rect_strides, intervals):
             duration = t_end - t_start
+            mean_speed = float("nan")
 
             if has_speed:
-                # Treadmill: discard acceleration strides (>2 unique speeds)
+                # Treadmill: discard strides with no speed samples or mid-acceleration
+                # (>2 unique rounded speeds means the treadmill was changing speed)
                 mask = (cond_header >= t_start) & (cond_header < t_end)
                 stride_speeds = speed[mask]
-                if len(stride_speeds) > 0:
-                    unique_speeds = np.unique(np.round(stride_speeds, 2))
-                    if len(unique_speeds) > 2:
-                        continue
+                if len(stride_speeds) == 0:
+                    continue
+                unique_speeds = np.unique(np.round(stride_speeds, 2))
+                if len(unique_speeds) > 2:
+                    continue
+                mean_speed = float(np.mean(stride_speeds))
             else:
                 # Non-treadmill: heuristic filtering
                 if duration < _MIN_STRIDE_DURATION or duration > _MAX_STRIDE_DURATION:
@@ -401,13 +440,46 @@ def process_mode_trials(
                     continue
 
             normalized = normalize_emg(stride, min_vals, max_vals)
-            tn = time_normalize_stride(normalized)
+            # Clip to [0, 1]: values above 1.0 arise for strides at speeds above
+            # the 1.35 m/s normalization reference. Without clipping, out-of-range
+            # values reach the AE training set and cause the model to learn targets
+            # it can never reproduce at inference (where we clip to [0, 1]).
+            tn = np.clip(time_normalize_stride(normalized), 0.0, 1.0)
+
+            # Determine condition label for this stride
+            if has_speed and not np.isnan(mean_speed):
+                # Treadmill: encode speed as a 2-decimal string for easy HDF5 queries
+                condition = f"{mean_speed:.2f}"
+            elif isinstance(trial_cond_label, list):
+                # Per-sample labels: look up by stride midpoint in conditions table time axis
+                t_mid = (t_start + t_end) / 2
+                if cond_header is not None:
+                    idx = int(np.searchsorted(cond_header, t_mid))
+                    idx = min(idx, len(trial_cond_label) - 1)
+                else:
+                    idx = len(trial_cond_label) // 2
+                condition = trial_cond_label[idx]
+            elif isinstance(trial_cond_label, str) and trial_cond_label:
+                condition = trial_cond_label
+            else:
+                condition = "unknown"
+
             good_strides.append(tn)
+            good_speeds.append(mean_speed)
+            good_trial_indices.append(i)
+            good_conditions.append(condition)
 
     if not good_strides:
         logger.warning("No valid strides after filtering")
-        return np.empty((0, N_GAIT_POINTS, 11))
+        return (
+            np.empty((0, N_GAIT_POINTS, 11), dtype=np.float64),
+            np.empty(0, dtype=np.float64),
+            np.empty(0, dtype=np.int32),
+            [],
+        )
 
     strides_3d = np.stack(good_strides, axis=0)
+    speeds_arr = np.array(good_speeds, dtype=np.float64)
+    trial_idx_arr = np.array(good_trial_indices, dtype=np.int32)
     logger.info("%d strides → shape %s", len(good_strides), strides_3d.shape)
-    return strides_3d
+    return strides_3d, speeds_arr, trial_idx_arr, good_conditions

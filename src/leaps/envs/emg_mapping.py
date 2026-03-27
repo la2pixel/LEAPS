@@ -7,6 +7,20 @@ This module handles:
   1. Mapping EMG channels → model actuators (some are 1:1, some are combined)
   2. Mirroring right-leg EMG to left leg (assuming symmetric gait)
   3. Setting default activations for muscles without EMG data (iliopsoas)
+
+Design notes
+------------
+gluteusmedius (EMG ch 9) is a hip *abductor* (frontal-plane stabiliser during stance).
+The model is 2D sagittal-plane only — there is no hip-abduction DOF. glut_max is the
+primary hip *extensor* and is a completely different muscle. Driving glut_max at full
+strength with the abductor signal creates a large, wrong hip-extension torque every step.
+We therefore apply a small partial-proxy weight (0.3) to acknowledge that gluteal muscles
+co-activate during stance, while preventing runaway hip extension.
+
+iliopsoas has no EMG channel in the Camargo dataset but is critical for the swing phase —
+it is the primary hip *flexor* and fires at ~15–25% MVC throughout the gait cycle. Setting
+its default to near-zero (0.05) means the leg cannot swing forward at all. A default of
+0.20 is biomechanically motivated as a conservative resting level.
 """
 
 import numpy as np
@@ -53,23 +67,26 @@ class EMGToMuscleMapper:
     """Maps 11-channel EMG activations to 18 model muscle commands.
 
     Mapping rules:
-        gastrocmed         → gastroc_r/l
-        tibialisanterior   → tib_ant_r/l
-        soleus             → soleus_r/l
-        vastusmed + vastlat → vasti_r/l  (average)
-        rectusfemoris      → rect_fem_r/l
-        bicepsfemoris      → hamstrings_r/l, bifemsh_r/l (split equally)
-        semitendinosus     → hamstrings_r/l (added to bicepsfemoris contribution)
-        gluteusmedius      → glut_max_r/l
-        gracilis           → dropped (no match)
-        externaloblique    → dropped (no match)
-        iliopsoas_r/l      → set to default_activation
+        gastrocmed         → gastroc_r/l           (1:1)
+        tibialisanterior   → tib_ant_r/l           (1:1)
+        soleus             → soleus_r/l             (1:1)
+        vastusmed + vastlat → vasti_r/l             (average of two heads)
+        rectusfemoris      → rect_fem_r/l           (1:1, biarticular quad)
+        bicepsfemoris      → hamstrings_r/l         (combined with semitendinosus)
+        semitendinosus     → hamstrings_r/l         (combined with bicepsfemoris)
+        bicepsfemoris      → bifemsh_r/l * 0.5      (BF short head, monoarticular)
+        gluteusmedius      → glut_max_r/l * 0.3     (partial proxy only — see module note)
+        gracilis           → dropped (no match in 18-muscle model)
+        externaloblique    → dropped (no match in 18-muscle model)
+        iliopsoas_r/l      → default_activation     (no EMG; default=0.20 for hip flexion)
 
     The right-leg EMG is mirrored to the left leg with an optional
     phase_offset for gait cycle shifting (left leg is ~50% offset).
     """
 
-    def __init__(self, default_activation: float = 0.05):
+    def __init__(self, default_activation: float = 0.20):
+        # 0.20 is motivated by iliopsoas activity during gait (~15-25% MVC throughout
+        # the cycle). All muscles without a direct EMG channel receive this default.
         self.default_activation = default_activation
 
     def map_emg_to_muscles(self, emg: np.ndarray) -> np.ndarray:
@@ -84,16 +101,32 @@ class EMGToMuscleMapper:
         act = np.full(18, self.default_activation)
 
         # Right leg
-        hamstring_combined = (emg[6] + emg[7]) / 2  # bicepsfemoris + semitendinosus
-        act[0] = hamstring_combined                   # hamstrings_r
-        act[1] = emg[6] * 0.5                        # bifemsh_r (biceps femoris short head)
-        act[2] = emg[9]                               # glut_max_r ← gluteusmedius
-        # act[3] = default                            # iliopsoas_r (no EMG)
-        act[4] = emg[5]                               # rect_fem_r ← rectusfemoris
+        # Hamstrings group: average of biarticular biceps femoris long head + semitendinosus.
+        # Both muscles act together as hip extensors + knee flexors during loading response.
+        hamstring_combined = (emg[6] + emg[7]) / 2
+        act[0] = hamstring_combined                   # hamstrings_r (biarticular)
+
+        # Biceps femoris short head: monoarticular knee flexor only. It co-activates with
+        # the long head but at a lower level — 50% of BF signal is a reasonable proxy.
+        act[1] = emg[6] * 0.5                        # bifemsh_r
+
+        # Glut max: primary hip extensor. No direct EMG. Gluteusmedius (ch 9) is a hip
+        # ABDUCTOR, not an extensor, so we cannot use it at full strength here. We apply
+        # a small weight (0.3) as a proxy for gross gluteal co-activation during stance,
+        # but accept that glut_max activation will be slightly underestimated. This is
+        # much better than the previous full-strength assignment which drove the hip into
+        # excessive extension and tipped the torso backward.
+        act[2] = emg[9] * 0.3                        # glut_max_r (partial gluteal proxy)
+
+        # Iliopsoas: primary hip flexor, essential for swing phase. No EMG channel exists.
+        # Remains at default_activation (0.20) — see __init__ comment.
+        # act[3] = default_activation                 # iliopsoas_r
+
+        act[4] = emg[5]                               # rect_fem_r ← rectusfemoris (1:1)
         act[5] = (emg[3] + emg[4]) / 2               # vasti_r ← avg(vastusmed, vastuslat)
-        act[6] = emg[0]                               # gastroc_r ← gastrocmed
-        act[7] = emg[2]                               # soleus_r
-        act[8] = emg[1]                               # tib_ant_r ← tibialisanterior
+        act[6] = emg[0]                               # gastroc_r ← gastrocmed (1:1)
+        act[7] = emg[2]                               # soleus_r (1:1)
+        act[8] = emg[1]                               # tib_ant_r ← tibialisanterior (1:1)
 
         # Left leg — mirror right leg
         act[9:18] = act[0:9]
@@ -112,32 +145,37 @@ class EMGToMuscleMapper:
         return np.array([self.map_emg_to_muscles(e) for e in emg_batch])
 
     def map_stride_with_phase_offset(
-        self, emg_stride: np.ndarray, offset_pct: int = 50,
+        self, emg_stride: np.ndarray, offset_pct: float = 50.0,
     ) -> np.ndarray:
-        """Map a full stride (101, 11) with phase-shifted left leg.
+        """Map a full stride (T, 11) with phase-shifted left leg.
 
-        During walking, the left leg is ~50% of gait cycle behind the right.
-        This rolls the left-leg activations by offset_pct timepoints.
+        During walking the left leg is ~50% of the gait cycle behind the right.
+        This function time-shifts the left-leg activations accordingly.
 
         Args:
-            emg_stride: Shape (101, 11) — one gait cycle of EMG.
-            offset_pct: Phase offset in % gait cycle (default 50).
+            emg_stride: Shape (T, 11) — one gait cycle of right-leg EMG.
+                        Typically T=101 (0–100% of gait cycle, inclusive).
+            offset_pct: Phase offset as a true percentage of gait cycle (default 50.0).
+                        50% means left leg is half a stride behind right leg.
 
         Returns:
-            Shape (101, 18) — full bilateral muscle commands.
+            Shape (T, 18) — full bilateral muscle commands, clipped to [0, 1].
         """
         stride_len = emg_stride.shape[0]
+        # Convert percentage to timepoint offset (rounds to nearest sample).
+        # For stride_len=101, offset_pct=50 → offset_steps=50 (exactly half).
+        offset_steps = int(round(offset_pct / 100.0 * stride_len))
         act = np.zeros((stride_len, 18))
 
         for t in range(stride_len):
             right_emg = emg_stride[t]
-            # Left leg uses the same EMG but shifted in time
-            t_left = (t + offset_pct) % stride_len
+            # Left leg reads from the same EMG array, shifted forward in time.
+            # The modulo wraps around at the end of the cycle (assumes periodicity).
+            t_left = (t + offset_steps) % stride_len
             left_emg = emg_stride[t_left]
 
-            # Map right leg
+            # Map right leg (indices 0–8) and left leg (indices 9–17)
             act[t, :9] = self.map_emg_to_muscles(right_emg)[:9]
-            # Map left leg from shifted EMG
             act[t, 9:] = self.map_emg_to_muscles(left_emg)[:9]
 
         return np.clip(act, 0.0, 1.0)
