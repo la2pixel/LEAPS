@@ -21,15 +21,13 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from leaps.data import discover_trials, load_mat_table
-from leaps.data.metadata import EMG_CHANNEL_LABELS, EMG_CHANNELS
+from leaps.data.metadata import CAMARGO_DATA_ROOT, EMG_CHANNEL_LABELS, EMG_CHANNELS
 from leaps.data.processing import (
     compute_normalization,
     find_stride_intervals,
     process_mode_trials,
     rectify_emg,
 )
-
-DEFAULT_DATA_ROOT = "/fast/lsivakumar/datasets/camargo"
 
 
 def plot_raw_vs_rectified(emg_table, gc_table, trial_name, out_dir):
@@ -194,7 +192,7 @@ def plot_activation_distribution(activations, out_dir, subject):
 def main():
     parser = argparse.ArgumentParser(description="Visualize EMG processing pipeline.")
     parser.add_argument("--subject", default="AB09", help="Subject ID (default: AB09)")
-    parser.add_argument("--data-root", default=DEFAULT_DATA_ROOT)
+    parser.add_argument("--data-root", default=CAMARGO_DATA_ROOT)
     parser.add_argument("--output-dir", default="plots", help="Directory for output plots")
     args = parser.parse_args()
 

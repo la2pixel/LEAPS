@@ -1,19 +1,7 @@
 """Camargo dataset parser and HDF5 loader.
 
-Parses raw .mat files from the Camargo et al. (2021) locomotion dataset.
+Parses raw .mat files from the Camargo dataset.
 
-## Why this is non-trivial
-
-The Camargo .mat files are NOT simple variable dumps. They contain MATLAB
-*table* objects, which get saved as MCOS (MATLAB Class Object System) blobs.
-scipy.io.loadmat can't deserialize MATLAB tables — it just returns a raw
-byte stream called ``__function_workspace__``.
-
-So we parse that byte stream directly:
-  1. Scan for ASCII column names (e.g. "Header", "gastrocmed", "Speed")
-  2. Scan for miDOUBLE arrays (MATLAB type tag = 9) — these are the columns
-
-## Camargo directory layout
 
 The raw dataset is organized as:
     {data_root}/
@@ -23,7 +11,7 @@ The raw dataset is organized as:
     │       │   ├── emg/            ← 7 .mat files (one per trial block)
     │       │   │   ├── AB06_treadmill_emg_01.mat
     │       │   │   └── ...
-    │       │   ├── gcRight/        ← gait cycle: HeelStrike sawtooth (0–100%)
+    │       │   ├── gcRight/        ← gait cycle: HeelStrike (0–100%)
     │       │   ├── conditions/     ← treadmill speed at each time point
     │       │   └── ...             ← gon, fp, imu, markers, id, ik, jp
     │       ├── levelground/
@@ -333,245 +321,73 @@ def parse_camargo(
 # Our numeric parser (_find_double_arrays) ignores strings entirely.
 # These functions scan the raw workspace bytes to recover condition labels.
 #
-# MATLAB v5 stores char arrays as miUINT16 (type tag = 6): each ASCII character
-# occupies 2 bytes (little-endian uint16, high byte = 0 for ASCII).
-# MATLAB categorical arrays store a cell of unique category strings PLUS a
-# miINT32/miUINT8 index array that maps each row to a category.
-# We try both a direct string scan and a categorical reconstruction.
-
-# Known Camargo condition vocabulary (used to validate found strings)
-_CAMARGO_LEVELGROUND_SPEEDS: list[str] = ["slow", "normal", "fast"]
-_CAMARGO_RAMP_ANGLES: list[str] = ["18", "12.4", "11", "9.2", "7.8", "5.2"]  # longest first
-_CAMARGO_STAIR_HEIGHTS_MM: list[str] = ["178", "152", "127", "102"]
-
-# Strings found in every workspace that are NOT condition labels
-_LABEL_SCAN_BLACKLIST: frozenset[str] = frozenset({
-    "Header", "Speed", "Label", "HeelStrike", "ToeOff", "LevelGround",
-    "Treadmill", "Ramp", "Stair", "Slow", "Normal", "Fast",
-    "slow", "normal", "fast",  # added below via matching, not via scan
-}) | _TABLE_METADATA_FIELDS
-
-
-def _scan_utf16_strings(ws: bytes, min_chars: int = 2, max_chars: int = 60) -> list[str]:
-    """Scan workspace bytes for MATLAB char arrays (miUINT16, type tag = 6).
-
-    MATLAB stores char arrays as miUINT16 data elements. Each ASCII character
-    occupies 2 bytes (little-endian, high byte = 0). The regular element header
-    is 8 bytes: [4 bytes type=6] [4 bytes byte_count].
-
-    Returns all decoded strings that consist entirely of printable ASCII.
-    """
-    results: list[str] = []
-    ws_len = len(ws)
-    i = 0
-
-    while i < ws_len - 8:
-        type_tag = int.from_bytes(ws[i:i + 4], "little")
-
-        if type_tag == 6:  # miUINT16
-            nbytes = int.from_bytes(ws[i + 4:i + 8], "little")
-            n_chars = nbytes // 2
-
-            if min_chars <= n_chars <= max_chars and i + 8 + nbytes <= ws_len:
-                raw = ws[i + 8:i + 8 + nbytes]
-                try:
-                    s = raw.decode("utf-16-le").rstrip("\x00").strip()
-                    if s and all(32 <= ord(c) < 128 for c in s):
-                        results.append(s)
-                except (UnicodeDecodeError, ValueError):
-                    pass
-
-            # Advance: 8-byte header + data + alignment padding to 8 bytes
-            pad = (-nbytes) % 8 if nbytes > 0 else 0
-            i += 8 + nbytes + pad
-        else:
-            i += 4
-
-    return results
-
-
-def _scan_ascii_label(ws: bytes, mode: str) -> str | None:
-    """Fallback: scan workspace bytes for known Camargo label strings as raw ASCII.
-
-    In some MATLAB versions strings are stored as miINT8 (plain ASCII bytes).
-    We scan for exact byte matches of known label strings (case-insensitive).
-
-    Returns the matched label in lowercase, or None.
-    """
-    if mode == "levelground":
-        # Check "normal" first (contains "normal" not just "slow"/"fast" substrings)
-        for label in ["normal", "fast", "slow"]:
-            for variant in [label, label.capitalize(), label.upper()]:
-                if variant.encode("ascii") in ws:
-                    return label
-
-    elif mode == "ramp":
-        for angle in _CAMARGO_RAMP_ANGLES:
-            if angle.encode("ascii") in ws:
-                return angle
-
-    elif mode == "stair":
-        for height in _CAMARGO_STAIR_HEIGHTS_MM:
-            if height.encode("ascii") in ws:
-                return height
-
-    return None
-
-
-def _scan_index_array(ws: bytes, n_rows: int, tol: int = 20) -> np.ndarray | None:
-    """Scan workspace for a MATLAB categorical index array of size ~n_rows.
-
-    MATLAB categorical arrays store category membership as a packed integer
-    array (miUINT8 type=2, miINT16 type=3, or miINT32 type=5). We look for
-    arrays of approximately the right length whose values are small non-negative
-    integers (valid category indices).
-
-    Returns the first matching array as int64, or None.
-    """
-    INTEGER_TAGS: dict[int, tuple[type, int]] = {
-        2: (np.uint8, 1),   # miUINT8
-        3: (np.int16, 2),   # miINT16
-        5: (np.int32, 4),   # miINT32
-    }
-    ws_len = len(ws)
-
-    for i in range(0, ws_len - 8, 4):
-        type_tag = int.from_bytes(ws[i:i + 4], "little")
-        if type_tag not in INTEGER_TAGS:
-            continue
-
-        dtype, item_size = INTEGER_TAGS[type_tag]
-        nbytes = int.from_bytes(ws[i + 4:i + 8], "little")
-        n = nbytes // item_size
-
-        if abs(n - n_rows) > tol or i + 8 + nbytes > ws_len:
-            continue
-
-        arr = np.frombuffer(ws[i + 8:i + 8 + nbytes], dtype=dtype).copy().astype(np.int64)
-        # Valid categorical indices: non-negative, small (< 50 unique categories)
-        if arr.min() >= 0 and 1 <= arr.max() < 50:
-            return arr
-
-    return None
-
-
 def extract_condition_labels(
     filepath: str | Path,
     mode: str,
     n_rows: int | None = None,
 ) -> list[str] | str | None:
-    """Extract condition label(s) from a Camargo conditions .mat file.
+    """Extract condition label from a Camargo conditions .mat file.
 
-    Works for non-treadmill modes (levelground, ramp, stair) where the
-    conditions file has a string Label column instead of a numeric Speed column.
-
-    Strategy:
-      1. Scan workspace for MATLAB char arrays (UTF-16LE, type=6) and match
-         against the known Camargo label vocabulary for the mode.
-      2. Fall back to ASCII scan if UTF-16LE scan finds nothing.
-      3. If n_rows provided and multiple labels found (e.g. ramp up+down),
-         attempt to reconstruct a per-sample label sequence by finding the
-         MATLAB categorical index array and mapping indices → label strings.
+    Uses scipy.io.loadmat to read the struct fields directly (conditions files
+    are simple MATLAB structs, not table objects, so scipy handles them fine).
 
     Args:
         filepath: Path to the conditions .mat file.
         mode:     "levelground", "ramp", or "stair".
-        n_rows:   Expected row count (= n_samples in the conditions table).
-                  Required for per-sample reconstruction; ignored otherwise.
+        n_rows:   Unused (kept for API compatibility).
 
     Returns:
-        list[str] of length n_rows  — per-sample labels (reconstruction succeeded).
-        str                         — single label for the whole trial.
-        None                        — extraction failed.
+        str   — single label for the whole trial, or None on failure.
 
     Label formats:
         levelground : "slow" | "normal" | "fast"
-        ramp        : "5.2" | "5.2_up" | "5.2_down"  (angle in degrees)
-        stair       : "102" | "102_up" | "102_down"   (height in mm)
+        ramp        : "5.2" | "7.8" | "9.2" | "11" | "12.4" | "18"  (degrees)
+        stair       : "102" | "127" | "152" | "178"  (mm)
     """
     if mode == "treadmill":
         return None  # treadmill uses numeric Speed column
 
-    ws = _get_workspace(str(filepath))
-    if ws is None:
+    import scipy.io as sio
+
+    try:
+        data = sio.loadmat(str(filepath), simplify_cells=True)
+    except Exception as exc:
+        logger.debug("extract_condition_labels: failed to load %s: %s", Path(filepath).name, exc)
         return None
-
-    # --- 1. UTF-16LE scan ---
-    utf16_strings = _scan_utf16_strings(ws)
-    matched: list[str] = []
-
-    def _add_unique(label: str) -> None:
-        if label not in matched:
-            matched.append(label)
 
     if mode == "levelground":
-        for s in utf16_strings:
-            if s.lower() in _CAMARGO_LEVELGROUND_SPEEDS:
-                _add_unique(s.lower())
+        speed = data.get("speed")
+        if speed is not None:
+            s = str(speed).strip().lower()
+            if s in ("slow", "normal", "fast"):
+                return s
 
     elif mode == "ramp":
-        for angle in _CAMARGO_RAMP_ANGLES:
-            for s in utf16_strings:
-                if angle in s:
-                    sl = s.lower()
-                    if any(d in sl for d in ("up", "asc")):
-                        _add_unique(f"{angle}_up")
-                    elif any(d in sl for d in ("down", "desc")):
-                        _add_unique(f"{angle}_down")
-                    else:
-                        _add_unique(angle)
+        incline = data.get("rampIncline")
+        if incline is not None:
+            angle = float(incline)
+            # Match to nearest known angle in vocabulary
+            known = [5.2, 7.8, 9.2, 11.0, 12.4, 18.0]
+            labels = ["5.2", "7.8", "9.2", "11", "12.4", "18"]
+            closest_idx = min(range(len(known)), key=lambda i: abs(known[i] - angle))
+            if abs(known[closest_idx] - angle) < 0.5:
+                return labels[closest_idx]
 
     elif mode == "stair":
-        for height in _CAMARGO_STAIR_HEIGHTS_MM:
-            for s in utf16_strings:
-                if height in s:
-                    sl = s.lower()
-                    if any(d in sl for d in ("up", "asc")):
-                        _add_unique(f"{height}_up")
-                    elif any(d in sl for d in ("down", "desc")):
-                        _add_unique(f"{height}_down")
-                    else:
-                        _add_unique(height)
+        height_in = data.get("stairHeight")
+        if height_in is not None:
+            height_mm = round(float(height_in) * 25.4)
+            known_mm = [102, 127, 152, 178]
+            labels = ["102", "127", "152", "178"]
+            closest_idx = min(range(len(known_mm)), key=lambda i: abs(known_mm[i] - height_mm))
+            if abs(known_mm[closest_idx] - height_mm) < 15:
+                return labels[closest_idx]
 
-    # --- 2. ASCII fallback ---
-    if not matched:
-        label = _scan_ascii_label(ws, mode)
-        if label:
-            matched = [label]
-
-    if not matched:
-        logger.debug(
-            "extract_condition_labels: no labels found  mode=%s  file=%s",
-            mode, Path(filepath).name,
-        )
-        return None
-
-    if len(matched) == 1:
-        return matched[0]
-
-    # --- 3. Multiple labels → try per-sample reconstruction ---
-    if n_rows is not None:
-        idx_arr = _scan_index_array(ws, n_rows)
-        if idx_arr is not None and int(idx_arr.max()) < len(matched):
-            try:
-                # MATLAB categorical indices are 1-based; check both 0- and 1-based
-                offset = 0 if idx_arr.min() == 0 else 1
-                return [matched[int(k) - offset] for k in idx_arr]
-            except (IndexError, ValueError):
-                pass
-        logger.debug(
-            "extract_condition_labels: %d labels found but index array reconstruction failed"
-            "  mode=%s  file=%s  labels=%s",
-            len(matched), mode, Path(filepath).name, matched,
-        )
-
-    # Return all found labels joined (can't determine per-sample distribution)
-    # Ordered: ascending before descending for ramp/stair
-    up = [m for m in matched if m.endswith("_up")]
-    down = [m for m in matched if m.endswith("_down")]
-    other = [m for m in matched if not m.endswith("_up") and not m.endswith("_down")]
-    ordered = up + down + other
-    return ",".join(ordered)
+    logger.debug(
+        "extract_condition_labels: no label found  mode=%s  file=%s",
+        mode, Path(filepath).name,
+    )
+    return None
 
 
 def load_camargo_dataset(

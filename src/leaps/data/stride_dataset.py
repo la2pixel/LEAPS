@@ -1,10 +1,8 @@
-"""Stride-level dataset utilities for loading (n_strides, 101, 11) sequences.
+"""StrideDataset utilities for loading (n_strides, 101, 11) sequences.
 
-The preprocessed HDF5 file stores stride data in two ways:
-  - /{subject}/strides  — (n_strides, 101, 11) per subject (3D, temporal)
-  - /activations        — (N, 11) all subjects flattened (2D, snapshot)
+Explained here: https://www.notion.so/StrideDataset-334ab61e5b1e80199b76eebe42697bbf
+HDF5 file structure: https://www.notion.so/HDF5-file-format-334ab61e5b1e8036be2dda21c06e7d31
 
-This module loads the 3D form for stride-level training.
 """
 
 import h5py
@@ -14,7 +12,7 @@ from torch.utils.data import Dataset
 
 
 class StrideDataset(Dataset):
-    """PyTorch Dataset wrapping (n_strides, stride_len, n_channels) stride data."""
+    """Dataset wrapping (n_strides, stride_len, n_channels)"""
 
     def __init__(self, strides: np.ndarray):
         self.data = torch.as_tensor(strides, dtype=torch.float32)
@@ -23,7 +21,7 @@ class StrideDataset(Dataset):
         return self.data.shape[0]
 
     def __getitem__(self, idx: int) -> torch.Tensor:
-        return self.data[idx]  # (stride_len, n_channels)
+        return self.data[idx]  #(stride_len, n_channels)
 
 
 def load_strides(
@@ -33,10 +31,7 @@ def load_strides(
     conditions: list[str] | None = None,
     with_metadata: bool = False,
 ) -> np.ndarray | tuple[np.ndarray, dict[str, np.ndarray]]:
-    """Load stride sequences from HDF5 with optional filtering.
-
-    Reads per-subject /{subject}/strides datasets and concatenates them.
-    Supports filtering by locomotion mode and condition label.
+    """Load stride sequences from HDF5 with option to filter by mode.
 
     Args:
         path:       Path to HDF5 file (output of leaps-preprocess).

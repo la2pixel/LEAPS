@@ -78,15 +78,18 @@ class EMGToMuscleMapper:
         gluteusmedius      → glut_max_r/l * 0.3     (partial proxy only — see module note)
         gracilis           → dropped (no match in 18-muscle model)
         externaloblique    → dropped (no match in 18-muscle model)
-        iliopsoas_r/l      → default_activation     (no EMG; default=0.20 for hip flexion)
+        iliopsoas_r/l      → default_activation     (no EMG; default=0.05, minimal baseline)
 
     The right-leg EMG is mirrored to the left leg with an optional
     phase_offset for gait cycle shifting (left leg is ~50% offset).
     """
 
-    def __init__(self, default_activation: float = 0.20):
-        # 0.20 is motivated by iliopsoas activity during gait (~15-25% MVC throughout
-        # the cycle). All muscles without a direct EMG channel receive this default.
+    def __init__(self, default_activation: float = 0.05):
+        # Iliopsoas fires primarily during swing (~50–80% gait cycle).
+        # During stance it is largely silent. A constant 0.20 default creates
+        # permanent hip-flexion torque (433 N) that overwhelms the under-driven
+        # glut_max proxy (≤150 N), keeping the hip perpetually forward-flexed
+        # and preventing knee extension. 0.05 is a minimal baseline.
         self.default_activation = default_activation
 
     def map_emg_to_muscles(self, emg: np.ndarray) -> np.ndarray:
@@ -111,12 +114,13 @@ class EMGToMuscleMapper:
         act[1] = emg[6] * 0.5                        # bifemsh_r
 
         # Glut max: primary hip extensor. No direct EMG. Gluteusmedius (ch 9) is a hip
-        # ABDUCTOR, not an extensor, so we cannot use it at full strength here. We apply
-        # a small weight (0.3) as a proxy for gross gluteal co-activation during stance,
-        # but accept that glut_max activation will be slightly underestimated. This is
-        # much better than the previous full-strength assignment which drove the hip into
-        # excessive extension and tipped the torso backward.
-        act[2] = emg[9] * 0.3                        # glut_max_r (partial gluteal proxy)
+        # ABDUCTOR, not an extensor, but co-activates with glut_max during loading
+        # response (0–20% gait). We combine a constant minimum floor (0.25 — motivated
+        # by glut_max firing at ~25–40% MVC during early stance in level-ground walking)
+        # with a small contribution from gluteusmedius to capture the burst timing.
+        # This replaces the previous proxy-only (0.3×) approach that gave ≤0.09
+        # activation — insufficient to overcome the default iliopsoas hip-flexion torque.
+        act[2] = np.clip(0.25 + emg[9] * 0.15, 0.0, 1.0)  # glut_max_r
 
         # Iliopsoas: primary hip flexor, essential for swing phase. No EMG channel exists.
         # Remains at default_activation (0.20) — see __init__ comment.
@@ -132,6 +136,24 @@ class EMGToMuscleMapper:
         act[9:18] = act[0:9]
 
         return np.clip(act, 0.0, 1.0)
+
+    def to_loco_action(self, muscle_act: np.ndarray) -> np.ndarray:
+        """Convert muscle activations [0, 1] to LocoMuJoCo action range [-1, 1].
+
+        LocoMuJoCo's DefaultControl maps actions in [-1, 1] to ctrl in [0, 1]
+        via: ctrl = 0.5*(action + 1). Muscle activations from EMG are in [0, 1].
+        This function inverts DefaultControl's mapping so that EMG activations
+        produce the correct ctrl values when fed through DefaultControl.
+
+            ctrl = 0.5*(action+1)  →  action = 2*ctrl - 1
+
+        Args:
+            muscle_act: Shape (..., 18), muscle activations in [0, 1].
+
+        Returns:
+            Same shape, actions in [-1, 1] for use with env.step().
+        """
+        return 2.0 * muscle_act - 1.0
 
     def map_batch(self, emg_batch: np.ndarray) -> np.ndarray:
         """Map a batch of EMG vectors.

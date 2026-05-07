@@ -1,26 +1,29 @@
-"""Camargo et al. (2021) dataset metadata and experiment constants.
-
-Reference: Camargo et al., "A comprehensive, open-source dataset of lower limb
-biomechanics in multiple conditions of stairs, ramps, and level-ground
-ambulation and transitions." Journal of Biomechanics, 2021.
+"""Camargo dataset metadata.
 
 Contains per-subject demographics, experiment protocol parameters, sensor
 specifications, and signal processing constants.
 """
 
+import os
 from dataclasses import dataclass
 
-# ── Dataset root path (cluster) ──────────────────────────────────────
+# Server-local paths — override by setting environment variables:
+#   LEAPS_RAW_DATA       path to raw Camargo dataset root
+#   LEAPS_PROCESSED_DATA path to processed emg_activations_v2.h5
+CAMARGO_DATA_ROOT: str = os.environ.get(
+    "LEAPS_RAW_DATA", "/fast/lsivakumar/datasets/camargo"
+)
+LEAPS_H5_PATH: str = os.environ.get(
+    "LEAPS_PROCESSED_DATA", "/fast/lsivakumar/data/processed/emg_activations_v2.h5"
+)
 
-CAMARGO_DATA_ROOT: str = "/fast/lsivakumar/datasets/camargo"
-
-# ── Subject demographics ──────────────────────────────────────────────
+# demographics
 
 @dataclass(frozen=True)
 class SubjectInfo:
     age: int
     gender: str  # "M" or "F"
-    height: float  # meters
+    height: float  # metres
     mass: float  # kg
 
 
@@ -52,10 +55,9 @@ SUBJECTS: dict[str, SubjectInfo] = {
 ALL_SUBJECT_IDS: list[str] = sorted(SUBJECTS.keys())
 N_SUBJECTS: int = len(SUBJECTS)
 
-# Group-level stats: age 21 ± 3.4 yr, height 1.70 ± 0.07 m, mass 68.3 ± 10.83 kg
+# group-level stats: age 21 ± 3.4 yr, height 1.70 ± 0.07 m, mass 68.3 ± 10.83 kg
 
-# ── Locomotion modes ──────────────────────────────────────────────────
-
+# locomotion modes
 ALL_MODES: list[str] = ["treadmill", "levelground", "ramp", "stair"]
 
 # Treadmill: 28 speeds, 0.5–1.85 m/s in 0.05 m/s increments
@@ -75,7 +77,7 @@ STAIR_HEIGHTS_MM: list[int] = [102, 127, 152, 178]  # mm (4, 5, 6, 7 inches)
 # Ramps: 5m long, 5 trials x 2 starting legs x 6 angles = 60 trials
 RAMP_ANGLES_DEG: list[float] = [5.2, 7.8, 9.2, 11.0, 12.4, 18.0]
 
-# ── Sensor specifications ─────────────────────────────────────────────
+#Sensor specs
 
 # 11 right-side lower-limb EMG channels (column names as they appear in .mat files)
 EMG_CHANNELS: list[str] = [
@@ -93,7 +95,7 @@ EMG_CHANNELS: list[str] = [
 ]
 N_EMG_CHANNELS: int = len(EMG_CHANNELS)
 
-# Human-readable names for display/plotting
+# readable names for display/plotting
 EMG_CHANNEL_LABELS: dict[str, str] = {
     "gastrocmed": "Gastrocnemius Med.",
     "tibialisanterior": "Tibialis Anterior",
@@ -140,8 +142,7 @@ N_MOCAP_MARKERS: int = 32
 # Force plates per ambulation mode
 N_FORCE_PLATES: int = 5
 
-# ── Sample rates (Hz) ─────────────────────────────────────────────────
-
+# sample rates for each signal (Hz)
 SAMPLE_RATES: dict[str, int] = {
     "emg": 1000,
     "gon": 1000,
@@ -156,9 +157,7 @@ SAMPLE_RATES: dict[str, int] = {
     "jp": 200,
 }
 
-# ── Signal processing parameters ─────────────────────────────────────
-# These match the actual code in rectify.m / STRIDES.m, which differs
-# slightly from what the paper describes.
+# These match the actual code in rectify.m / STRIDES.m example scripts provided
 
 @dataclass(frozen=True)
 class FilterSpec:
@@ -189,7 +188,7 @@ EMG_ENVELOPE_LOWPASS = FilterSpec(
 IMU_FILTER = FilterSpec(sample_rate=200, filter_type="lowpass", cutoff=100.0, order=6)
 GON_FILTER = FilterSpec(sample_rate=1000, filter_type="lowpass", cutoff=20.0, order=4)
 
-# ── EMG normalization ─────────────────────────────────────────────────
+#normalize emg
 
 # EMG is normalized to the average rectified amplitude during treadmill walking
 # at this reference speed, per subject. Chosen to reduce inter-subject variability

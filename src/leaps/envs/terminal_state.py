@@ -18,6 +18,19 @@ from loco_mujoco.core.utils import mj_jntname2qposid
 from loco_mujoco.core.utils.backend import assert_backend_is_supported
 
 
+class NoTerminalStateHandler(TerminalStateHandler):
+    """Never terminates — episode ends only at horizon. Use during diagnostics."""
+
+    def reset(self, env, model, data, carry, backend):
+        return data, carry
+
+    def is_absorbing(self, env, obs, info, data, carry):
+        return False, carry
+
+    def mjx_is_absorbing(self, env, obs, info, data, carry):
+        return jnp.bool_(False), carry
+
+
 class HeightJointTerminalStateHandler(TerminalStateHandler):
     """Terminal state handler that checks pelvis_ty joint for height-based termination.
 

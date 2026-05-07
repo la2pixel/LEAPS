@@ -16,7 +16,7 @@ LogFn = Callable[[dict[str, float], int], None] | None
 
 # Model name sets — used by train_strides.py to pick the right train function
 STRIDE_SKLEARN_MODELS = {"StridePCA", "StrideNMF", "StrideCNMF"}
-STRIDE_PYTORCH_MODELS = {"StrideAE", "StrideVAE", "StrideMAE", "StrideWAE", "StrideFlatAE"}
+STRIDE_PYTORCH_MODELS = {"StrideAE", "StrideVAE", "StrideMAE", "StrideWAE", "StrideFlatAE", "StrideFlatVAE"}
 
 
 def train_stride_sklearn_model(
@@ -104,6 +104,7 @@ def build_stride_model(
         StrideAutoencoder,
         StrideCNMFModel,
         StrideFlatAE,
+        StrideFlatVAE,
         StrideMaskedAutoencoder,
         StrideNMFModel,
         StridePCAModel,
@@ -120,6 +121,7 @@ def build_stride_model(
         "StrideMAE": StrideMaskedAutoencoder,
         "StrideWAE": StrideWAE_MMD,
         "StrideFlatAE": StrideFlatAE,
+        "StrideFlatVAE": StrideFlatVAE,
     }
     if model_name not in models:
         raise ValueError(f"Unknown stride model: {model_name}. Choose from {list(models.keys())}")

@@ -1,5 +1,10 @@
 # Python
 __pycache__/
+.xla_cache/
+cluster/
+notion/
+outputs/
+eda_plots/
 *.py[cod]
 *.so
 *.egg-info/

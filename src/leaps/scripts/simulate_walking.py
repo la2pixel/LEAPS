@@ -27,6 +27,8 @@ from pathlib import Path
 # Force JAX to CPU — MuJoCo sim doesn't need GPU, avoids CUDA_ERROR_NO_DEVICE
 os.environ.setdefault("JAX_PLATFORMS", "cpu")
 
+from leaps.data.metadata import LEAPS_H5_PATH
+
 import jax  # noqa: E402
 import numpy as np  # noqa: E402
 
@@ -384,54 +386,207 @@ def cmd_representation(args):
 
 
 # ---------------------------------------------------------------------------
-# PPO training / evaluation
+# PPO helpers
 # ---------------------------------------------------------------------------
+
+
+class _VecNormCheckpointCallback:
+    """Mixin-style callback: saves VecNormalize stats alongside every checkpoint.
+
+    Used together with CheckpointCallback. SB3's CheckpointCallback only saves
+    the policy .zip file — this callback saves the matching _vecnorm.pkl so that
+    every checkpoint is self-contained and loadable for evaluation even if the
+    job is killed mid-run.
+
+    Usage:
+        checkpoint_cb = CheckpointCallback(save_freq=..., save_path=..., name_prefix=...)
+        vecnorm_cb = _VecNormCheckpointCallback(train_env, checkpoint_cb)
+    """
+
+    def __new__(cls, train_env_vecnorm, checkpoint_cb):
+        from stable_baselines3.common.callbacks import BaseCallback
+
+        class _Impl(BaseCallback):
+            def __init__(self):
+                super().__init__()
+                self._vec_env = train_env_vecnorm
+                self._ckpt_cb = checkpoint_cb
+
+            def _on_step(self) -> bool:
+                # n_calls is incremented before _on_step, same as CheckpointCallback,
+                # so this triggers at exactly the same steps.
+                if self.n_calls % self._ckpt_cb.save_freq == 0:
+                    path = (
+                        f"{self._ckpt_cb.save_path}/"
+                        f"{self._ckpt_cb.name_prefix}_{self.num_timesteps}_steps_vecnorm.pkl"
+                    )
+                    self._vec_env.save(path)
+                return True
+
+        return _Impl()
+
+
+def _make_env_fn(variant: str, env_kwargs: dict, seed: int):
+    """Return a callable that creates the env for SubprocVecEnv.
+
+    Uses functools.partial so the returned callable is picklable.
+    All env_kwargs values must also be picklable (numpy arrays are fine;
+    PyTorch models are NOT — use decoder_weights dict instead).
+    """
+    import functools
+    return functools.partial(_subprocess_env_init, variant, env_kwargs, seed)
+
+
+def _subprocess_env_init(variant: str, env_kwargs: dict, seed: int):
+    """Module-level env factory for SubprocVecEnv workers.
+
+    Must be at module level (not a closure) so it is picklable by Python's
+    multiprocessing 'spawn' start method. Closures / local functions are NOT
+    picklable and would crash SubprocVecEnv immediately.
+
+    Each worker process calls this once at startup to build its env.
+    """
+    from stable_baselines3.common.monitor import Monitor
+
+    from leaps.envs.gym_wrapper import (
+        Gait10dof18MuscGymEnv,
+        LatentActionGymEnv,
+        ResidualLatentGymEnv,
+    )
+
+    if variant == "direct":
+        env = Gait10dof18MuscGymEnv(**env_kwargs)
+    elif variant == "latent":
+        env = LatentActionGymEnv(**env_kwargs)
+    elif variant == "residual":
+        env = ResidualLatentGymEnv(**env_kwargs)
+    else:
+        raise ValueError(f"Unknown variant: {variant}")
+
+    env = Monitor(env)
+    env.reset(seed=seed)
+    return env
 
 
 def cmd_ppo(args):
     """Train or evaluate SB3 PPO on the gait10dof18musc env."""
+    import random
+
+    import numpy as np
+    import torch
+
+    # Reproducibility: fix all random sources before anything else.
+    seed = args.seed
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+
     from stable_baselines3 import PPO
     from stable_baselines3.common.callbacks import CheckpointCallback
+    from stable_baselines3.common.vec_env import DummyVecEnv, SubprocVecEnv
 
-    from leaps.envs.gym_wrapper import Gait10dof18MuscGymEnv, LatentActionGymEnv
+    from leaps.envs.gym_wrapper import (
+        Gait10dof18MuscGymEnv,
+        LatentActionGymEnv,
+        ResidualLatentGymEnv,
+        load_flatae_decoder_weights,
+        load_hausdorfer_decoder_weights,
+    )
 
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    print(f"=== PPO ({args.variant}) ===")
+    n_envs = max(1, args.n_envs)
+    print(f"=== PPO ({args.variant}, {n_envs} envs) ===")
+
+    # Build env_kwargs (all values must be picklable for SubprocVecEnv)
+    common_kwargs = {"max_episode_steps": 1000, "headless": True, "effort_weight": args.effort_weight, "upright_weight": args.upright_weight, "tilt_limit": 0.8}
 
     if args.variant == "direct":
-        env = Gait10dof18MuscGymEnv(
-            target_velocity=1.25,
-            max_episode_steps=1000,
-        )
-    elif args.variant == "latent":
+        env_kwargs = {"target_velocity": 1.25, "obs_type": args.obs_type, **common_kwargs}
+
+    elif args.variant in ("latent", "residual"):
         if args.decoder_checkpoint is None:
-            raise ValueError("--decoder-checkpoint required for latent variant")
+            raise ValueError(f"--decoder-checkpoint required for {args.variant} variant")
+        print(f"  Loading {args.decoder_type} decoder from {args.decoder_checkpoint}")
+        if args.decoder_type == "snapshot":
+            decoder_weights = load_hausdorfer_decoder_weights(args.decoder_checkpoint)
+        else:
+            decoder_weights = load_flatae_decoder_weights(args.decoder_checkpoint)
 
-        from leaps.training.stride_trainer import build_stride_model
+        env_kwargs = {
+            "decoder_weights": decoder_weights,
+            "latent_dim": args.latent_dim,
+            "target_velocity": 1.25,
+            "stride_duration": args.stride_duration,
+            "obs_type": args.obs_type,
+            **common_kwargs,
+        }
+        if args.variant == "residual":
+            env_kwargs["residual_weight"] = args.residual_weight
 
-        ae_model = build_stride_model("StrideFlatAE", args.latent_dim)
-        print(f"  Loading decoder from {args.decoder_checkpoint}")
-        ae_model.load(args.decoder_checkpoint)
-
-        for param in ae_model.decoder.parameters():
-            param.requires_grad = False
-        ae_model._module.eval()
-
-        env = LatentActionGymEnv(
-            decoder_fn=ae_model.decode,
-            latent_dim=args.latent_dim,
-            target_velocity=1.25,
-            max_episode_steps=1000,
-        )
     else:
         raise ValueError(f"Unknown variant: {args.variant}")
 
-    print(f"  Action space: {env.action_space}")
-    print(f"  Observation space: {env.observation_space}")
+    from stable_baselines3.common.callbacks import EvalCallback
+    from stable_baselines3.common.monitor import Monitor
+    from stable_baselines3.common.vec_env import VecNormalize
 
+    # ── Hyperparameters (paper Table I — Humanoid-v4 settings) ───────────────
+    # n_steps × n_envs = 2048 × 4 = 8192 total rollout per update (paper-exact)
+    N_STEPS_PER_ENV = 2048          # per-env rollout steps (paper: 2048 for humanoid)
+    BATCH_SIZE      = args.batch_size  # SB3 default 64; paper does not override for humanoid
+    NET_ARCH        = [512, 512]    # paper: 512×512 for humanoid
+
+    # ── Build env factory helper ──────────────────────────────────────────
+    def _make_single_env():
+        if args.variant == "direct":
+            e = Gait10dof18MuscGymEnv(**env_kwargs)
+        elif args.variant == "latent":
+            e = LatentActionGymEnv(**env_kwargs)
+        else:
+            e = ResidualLatentGymEnv(**env_kwargs)
+        return Monitor(e)
+
+    # ── Eval env (always needed: for EvalCallback during train, or for --eval)
+    # DummyVecEnv wraps a single Monitor env. VecNormalize with training=False
+    # means the running stats are only READ here, never updated. EvalCallback
+    # calls sync_envs_normalization(train_env, eval_env) before each eval run
+    # to copy the latest stats from training, so obs are normalised identically.
+    eval_vec = DummyVecEnv([_make_single_env])
+    eval_env = VecNormalize(eval_vec, norm_obs=True, norm_reward=False,
+                            clip_obs=10.0, training=False)
+
+    _act = eval_vec.action_space
+    _obs = eval_vec.observation_space
+    print(f"  Action space:      {_act}")
+    print(f"  Observation space: {_obs}")
+    print(f"  n_steps/env={N_STEPS_PER_ENV}, batch={BATCH_SIZE}, "
+          f"total/update={N_STEPS_PER_ENV * n_envs}, net={NET_ARCH}")
+
+    # ── Training env: only spawned when --train is requested ─────────────
+    # SubprocVecEnv spawns N independent worker processes (real parallelism).
+    # "spawn" is safe on cluster — workers import fresh, no risk of inheriting
+    # partially-initialised JAX/CUDA state.
+    # VecNormalize: norm_obs=True matches paper exactly.
+    train_env = None
     if args.train:
+        if n_envs == 1:
+            train_vec = DummyVecEnv([_make_single_env])
+        else:
+            fns = [_make_env_fn(args.variant, env_kwargs, seed=seed + i) for i in range(n_envs)]
+            try:
+                train_vec = SubprocVecEnv(fns, start_method="spawn")
+            except Exception as exc:
+                print(f"  SubprocVecEnv failed ({exc}), falling back to DummyVecEnv")
+                train_vec = DummyVecEnv(fns)
+
+        train_env = VecNormalize(train_vec, norm_obs=True, norm_reward=False, clip_obs=10.0)
+
+    if args.train:  # train_env is guaranteed non-None here (created above)
         print(f"  Training for {args.total_timesteps} timesteps")
 
         wandb_callback = None
@@ -440,39 +595,85 @@ def cmd_ppo(args):
                 import wandb
                 from wandb.integration.sb3 import WandbCallback
 
+                run_name = f"ppo_{args.variant}"
+                if args.variant in ("latent", "residual"):
+                    run_name += f"_d{args.latent_dim}"
+                if args.variant == "residual":
+                    run_name += f"_w{args.residual_weight}"
+                if args.ent_coef != 0.0:
+                    run_name += f"_e{args.ent_coef}"
+
                 wandb.init(
                     project=args.wandb_project,
-                    name=f"ppo_{args.variant}_{'latent' + str(args.latent_dim) if args.variant == 'latent' else 'direct18'}",
+                    group="ppo_baselines",
+                    name=run_name,
                     config={
                         "variant": args.variant,
+                        "decoder_type": args.decoder_type if args.variant != "direct" else None,
+                        "obs_type": args.obs_type,
                         "total_timesteps": args.total_timesteps,
-                        "latent_dim": args.latent_dim if args.variant == "latent" else 18,
+                        "latent_dim": args.latent_dim if args.variant != "direct" else 18,
+                        "residual_weight": args.residual_weight if args.variant == "residual" else None,
+                        "n_envs": n_envs,
+                        "n_steps": N_STEPS_PER_ENV,
+                        "batch_size": BATCH_SIZE,
+                        "net_arch": str(NET_ARCH),
+                        "ent_coef": args.ent_coef,
+                        "lr": args.lr,
+                        "effort_weight": args.effort_weight,
                     },
                     sync_tensorboard=True,
                 )
                 wandb_callback = WandbCallback(verbose=2)
-            except ImportError:
-                print("  WARNING: wandb not installed, skipping.")
+                print(f"  W&B run: {wandb.run.url}")
+            except Exception as e:
+                print(f"  WARNING: W&B init failed ({e}), training continues without logging.")
 
+        # Checkpoint every 500K env steps.
+        ckpt_dir = output_dir / "checkpoints"
+        ckpt_dir.mkdir(parents=True, exist_ok=True)
         checkpoint_cb = CheckpointCallback(
-            save_freq=50_000,
-            save_path=str(output_dir / "checkpoints"),
+            save_freq=max(1, 500_000 // n_envs),
+            save_path=str(ckpt_dir),
             name_prefix=f"ppo_{args.variant}",
         )
-        callbacks = [checkpoint_cb]
+        # Saves VecNormalize stats alongside every checkpoint (.pkl matches .zip).
+        # Critical: if the job is killed mid-run, intermediate checkpoints are
+        # still loadable for eval without needing to retrain.
+        vecnorm_ckpt_cb = _VecNormCheckpointCallback(train_env, checkpoint_cb)
+
+        # EvalCallback syncs VecNormalize stats (train→eval) before each eval run,
+        # then runs 10 deterministic episodes and logs eval/mean_reward,
+        # eval/mean_ep_length. Saves best model to best_model/.
+        eval_cb = EvalCallback(
+            eval_env,
+            best_model_save_path=str(output_dir / "best_model"),
+            log_path=str(output_dir / "eval_logs"),
+            eval_freq=max(1, 25_000 // n_envs),
+            n_eval_episodes=10,
+            deterministic=True,
+            render=False,
+            verbose=1,
+        )
+
+        callbacks = [checkpoint_cb, vecnorm_ckpt_cb, eval_cb]
         if wandb_callback is not None:
             callbacks.append(wandb_callback)
 
         model = PPO(
             "MlpPolicy",
-            env,
+            train_env,
             verbose=1,
-            n_steps=4096,
-            batch_size=256,
-            learning_rate=3e-4,
-            ent_coef=0.01,
+            seed=seed,
+            n_steps=N_STEPS_PER_ENV,
+            batch_size=BATCH_SIZE,
+            n_epochs=10,
+            learning_rate=args.lr,
+            ent_coef=args.ent_coef,
             gamma=0.99,
             gae_lambda=0.95,
+            clip_range=0.2,
+            policy_kwargs=dict(net_arch=NET_ARCH),
             tensorboard_log=str(output_dir / "tb_logs"),
             device="auto",
         )
@@ -480,11 +681,15 @@ def cmd_ppo(args):
         t0 = time.time()
         model.learn(total_timesteps=args.total_timesteps, callback=callbacks)
         elapsed = time.time() - t0
-        print(f"  Training completed in {elapsed:.1f}s")
+        print(f"  Training completed in {elapsed:.1f}s "
+              f"({args.total_timesteps / elapsed:.0f} steps/s)")
 
+        # Save final model + VecNormalize stats (needed for loading/eval later)
         final_path = output_dir / f"ppo_{args.variant}_final"
         model.save(str(final_path))
-        print(f"  Saved final model to {final_path}")
+        train_env.save(str(final_path) + "_vecnorm.pkl")
+        print(f"  Saved model to {final_path}.zip")
+        print(f"  Saved VecNormalize stats to {final_path}_vecnorm.pkl")
 
         if args.wandb:
             try:
@@ -494,39 +699,52 @@ def cmd_ppo(args):
 
     if args.eval:
         model_path = output_dir / f"ppo_{args.variant}_final.zip"
+        vecnorm_path = output_dir / f"ppo_{args.variant}_final_vecnorm.pkl"
         if not model_path.exists():
             ckpt_dir = output_dir / "checkpoints"
             if ckpt_dir.exists():
                 ckpts = sorted(ckpt_dir.glob(f"ppo_{args.variant}_*.zip"))
                 if ckpts:
                     model_path = ckpts[-1]
+                    vecnorm_path = Path(str(ckpts[-1]).replace(".zip", "_vecnorm.pkl"))
                 else:
                     print(f"  ERROR: No model found at {model_path}")
-                    env.close()
+                    eval_env.close()
+                    if train_env is not None:
+                        train_env.close()
                     return
             else:
                 print(f"  ERROR: No model found at {model_path}")
-                env.close()
+                eval_env.close()
+                train_env.close()
                 return
 
+        # Load VecNormalize stats so eval obs are normalised identically to training
+        if vecnorm_path.exists():
+            eval_env = VecNormalize.load(str(vecnorm_path), eval_vec)
+            eval_env.training = False
+            eval_env.norm_reward = False
+            print(f"  Loaded VecNormalize stats from {vecnorm_path}")
+        else:
+            print(f"  WARNING: VecNormalize stats not found at {vecnorm_path}, eval obs unnormalised")
+
         print(f"  Evaluating model from {model_path}")
-        model = PPO.load(str(model_path), env=env)
+        model = PPO.load(str(model_path), env=eval_env)
 
         n_eval_episodes = 10
         all_rewards = []
         all_lengths = []
 
         for ep in range(n_eval_episodes):
-            obs, _ = env.reset(seed=ep)
+            obs = eval_env.reset()
             ep_reward = 0.0
             ep_len = 0
-            done = False
-            while not done:
+            done = [False]
+            while not done[0]:
                 action, _ = model.predict(obs, deterministic=True)
-                obs, reward, terminated, truncated, info = env.step(action)
-                ep_reward += reward
+                obs, reward, done, info = eval_env.step(action)
+                ep_reward += float(reward[0])
                 ep_len += 1
-                done = terminated or truncated
             all_rewards.append(ep_reward)
             all_lengths.append(ep_len)
             print(f"    Episode {ep + 1}: reward={ep_reward:.2f}, length={ep_len}")
@@ -538,7 +756,9 @@ def cmd_ppo(args):
         np.savez(eval_path, rewards=np.array(all_rewards), lengths=np.array(all_lengths))
         print(f"  Saved eval results to {eval_path}")
 
-    env.close()
+    eval_env.close()
+    if train_env is not None:
+        train_env.close()
 
 
 # ---------------------------------------------------------------------------
@@ -617,13 +837,19 @@ def cmd_record_ppo(args):
             obs_32 = np.asarray(obs, dtype=np.float32)
             action, _ = ppo_model.predict(obs_32, deterministic=True)
 
-            # For latent variant: decode z → muscles → LocoMuJoCo [-1,1]
+            # For latent variant: decode z → phase-indexed frame → muscles → LocoMuJoCo [-1,1]
             if args.variant == "latent" and decoder_fn is not None:
                 z = np.asarray(action, dtype=np.float32)
-                decoded = decoder_fn(z.reshape(1, -1))  # (1, 1111)
+                decoded = np.clip(decoder_fn(z.reshape(1, -1)), 0.0, 1.0)  # (1, 1111)
                 stride = decoded.reshape(101, 11)
-                emg_mean = stride.mean(axis=0)  # (11,)
-                muscles_01 = mapper.map_emg_to_muscles(emg_mean)  # (18,)
+                # Phase-based extraction — matches LatentActionGymEnv._decode_action
+                t = float(env._data.time)
+                phase = (t % 1.0) / 1.0
+                t_r = int(round(phase * 100)) % 101
+                t_l = (t_r + 50) % 101
+                muscles_r = mapper.map_emg_to_muscles(stride[t_r])[:9]
+                muscles_l = mapper.map_emg_to_muscles(stride[t_l])[:9]
+                muscles_01 = np.concatenate([muscles_r, muscles_l])
                 loco_action = (2.0 * muscles_01 - 1.0).astype(np.float32)
             else:
                 loco_action = np.asarray(action, dtype=np.float32)
@@ -654,7 +880,7 @@ def main(argv=None):
 
     # --- emg-replay ---
     p_emg = subparsers.add_parser("emg-replay", help="Open-loop EMG replay simulation.")
-    p_emg.add_argument("--data", required=True, help="Path to emg_activations.h5")
+    p_emg.add_argument("--data", default=LEAPS_H5_PATH, help="Path to emg_activations.h5")
     p_emg.add_argument("--output", default="results/emg_replay.npz", help="Output .npz path")
     p_emg.add_argument("--duration", type=float, default=10.0, help="Simulation duration (seconds)")
     p_emg.add_argument("--seed", type=int, default=42)
@@ -666,7 +892,7 @@ def main(argv=None):
 
     # --- representation ---
     p_rep = subparsers.add_parser("representation", help="Reconstruct EMG through models, then simulate.")
-    p_rep.add_argument("--data", required=True, help="Path to emg_activations.h5")
+    p_rep.add_argument("--data", default=LEAPS_H5_PATH, help="Path to emg_activations.h5")
     p_rep.add_argument("--checkpoint-dir", required=True, help="Directory with model checkpoints")
     p_rep.add_argument("--latent-dim", type=int, default=9, help="Latent dimension")
     p_rep.add_argument(
@@ -680,13 +906,42 @@ def main(argv=None):
 
     # --- ppo ---
     p_ppo = subparsers.add_parser("ppo", help="PPO training / evaluation.")
-    p_ppo.add_argument("--variant", choices=["direct", "latent"], required=True)
+    p_ppo.add_argument(
+        "--variant", choices=["direct", "latent", "residual"], required=True,
+        help="direct: 18-dim muscle actions. "
+             "latent: latent_dim actions decoded to muscles. "
+             "residual: (latent_dim+18) actions — decoded prior blended with residual correction.",
+    )
     p_ppo.add_argument("--train", action="store_true", help="Train PPO")
     p_ppo.add_argument("--eval", action="store_true", help="Evaluate PPO")
     p_ppo.add_argument("--total-timesteps", type=int, default=1_000_000)
     p_ppo.add_argument("--output-dir", default="experiments/ppo")
-    p_ppo.add_argument("--decoder-checkpoint", default=None, help="StrideFlatAE checkpoint (for latent)")
+    p_ppo.add_argument("--decoder-checkpoint", default=None,
+                       help="AE checkpoint .pt (required for latent/residual variants)")
+    p_ppo.add_argument("--decoder-type", choices=["snapshot", "stride"], default="snapshot",
+                       help="'snapshot' for HausdorferAE (default), 'stride' for StrideFlatAE")
+    p_ppo.add_argument("--obs-type", choices=["reduced", "full"], default="reduced",
+                       help="'reduced' (19 dims, default) or 'full' (75 dims)")
     p_ppo.add_argument("--latent-dim", type=int, default=9)
+    p_ppo.add_argument("--residual-weight", type=float, default=0.2,
+                       help="Residual blend weight w: a = (1-w)*prior + w*residual. "
+                            "Paper Table I: Humanoid=0.5, UnitreeA1=0.1. "
+                            "Sweep: 0.2, 0.5. Only used for --variant residual.")
+    p_ppo.add_argument("--stride-duration", type=float, default=1.0,
+                       help="Gait cycle duration in seconds. Only used for stride decoder.")
+    p_ppo.add_argument("--n-envs", type=int, default=4,
+                       help="Parallel envs. Default 4 (paper setting, 4×2048=8192/update).")
+    p_ppo.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility")
+    p_ppo.add_argument("--effort-weight", type=float, default=0.01,
+                       help="Effort penalty weight on mean(ctrl²). 0.0 = pure velocity reward (Hausdörfer).")
+    p_ppo.add_argument("--upright-weight", type=float, default=0.0,
+                       help="Upright posture reward weight. Scales linearly from 1.0 (upright) to 0.0 at tilt_limit.")
+    p_ppo.add_argument("--ent-coef", type=float, default=0.0,
+                       help="PPO entropy coefficient. SB3 default / paper default: 0.0.")
+    p_ppo.add_argument("--lr", type=float, default=3e-4,
+                       help="PPO learning rate. SB3 default: 3e-4.")
+    p_ppo.add_argument("--batch-size", type=int, default=64,
+                       help="PPO minibatch size. SB3 default / paper default: 64.")
     p_ppo.add_argument("--wandb", action="store_true")
     p_ppo.add_argument("--wandb-project", default="leaps")
 

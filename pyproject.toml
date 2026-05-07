@@ -50,10 +50,12 @@ all = [
 [project.scripts]
 leaps-train = "leaps.scripts.train:main"
 leaps-train-strides = "leaps.scripts.train_strides:main"
+leaps-train-snapshot = "leaps.scripts.train_snapshot:main"
 leaps-preprocess = "leaps.scripts.preprocess_data:main"
 leaps-visualize = "leaps.scripts.visualize_emg:main"
 leaps-render = "leaps.scripts.render_comparison:main"
 leaps-simulate = "leaps.scripts.simulate_walking:main"
+leaps-visualize-snapshot = "leaps.scripts.visualize_snapshot_ae:main"
 
 [project.urls]
 Homepage = "https://github.com/lsivakumar/leaps"

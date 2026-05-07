@@ -1,50 +1,14 @@
-"""Preprocess raw Camargo EMG data into autoencoder-ready HDF5.
+"""Preprocess raw Camargo EMG data into files of HDF5 format
 
-Runs the full STRIDES.m pipeline in Python: rectify → normalize → segment →
-time-normalize → clip [0,1] → store. Processes ALL 4 locomotion modes
-(treadmill, levelground, ramp, stair). Normalization is computed from treadmill
-at 1.35 m/s and applied to all modes (matching STRIDES.m).
+I implement the Camargo STRIDES.m example file in Python.
+Explanation found in: https://www.notion.so/Post-processing-Steps-334ab61e5b1e803fbe94d773c1e1d86c
+    
 
-## Output HDF5 structure
-
-    /activations          — (N, 11) float64 — ALL subjects & modes pooled.
-    │                       Each row = one time-point snapshot of 11 muscles.
-    │                       This is the autoencoder's training set.
-    │                       Values are clipped to [0, 1].
-    │
-    ├── attrs:
-    │   └── emg_channels  — list of 11 muscle names (column labels)
-    │
-    /stride_modes         — (M,) string — mode label per stride (e.g. "treadmill")
-    /stride_subjects      — (M,) string — subject ID per stride (e.g. "AB09")
-    /stride_speeds        — (M,) float64 — mean treadmill speed per stride (m/s),
-    │                       NaN for non-treadmill modes.
-    │                       M = N / 101 (each stride = 101 time points)
-    │
-    /{subject}/strides       — (n_strides, 101, 11) per-subject stride profiles,
-    │                          values clipped to [0, 1].
-    /{subject}/modes         — (n_strides,) string — mode label per stride
-    /{subject}/speeds        — (n_strides,) float64 — treadmill speed or NaN
-    /{subject}/trial_indices — (n_strides,) int32 — trial file index within mode
-    /{subject}/min_vals      — (11,) normalization min per channel
-    /{subject}/max_vals      — (11,) normalization max per channel
-
-## How to inspect the output
-
-    python -c "
-    import h5py, numpy as np
-    with h5py.File('emg_activations.h5', 'r') as f:
-        print('Activations shape:', f['activations'].shape)
-        modes = np.array(f['stride_modes']).astype(str)
-        for m in np.unique(modes):
-            print(f'  {m}: {np.sum(modes == m)} strides')
-    "
-
-Usage:
+Run the module:
     leaps-preprocess --data-root /fast/lsivakumar/datasets/camargo \\
                      --output /fast/lsivakumar/data/processed/emg_activations.h5
 
-    # Single subject for testing:
+    #to test for a single subject:
     leaps-preprocess --data-root /fast/lsivakumar/datasets/camargo \\
                      --output test.h5 --subjects AB09
 """
@@ -59,7 +23,7 @@ import numpy as np
 
 from leaps.data import discover_trials, load_mat_table
 from leaps.data.loaders import ALL_SUBJECTS, extract_condition_labels
-from leaps.data.metadata import ALL_MODES, EMG_CHANNELS
+from leaps.data.metadata import ALL_MODES, CAMARGO_DATA_ROOT, EMG_CHANNELS, LEAPS_H5_PATH
 from leaps.data.processing import compute_normalization, process_mode_trials
 
 logger = logging.getLogger(__name__)
@@ -67,8 +31,8 @@ logger = logging.getLogger(__name__)
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Preprocess Camargo EMG → autoencoder HDF5.")
-    parser.add_argument("--data-root", required=True, help="Path to raw Camargo dataset root")
-    parser.add_argument("--output", required=True, help="Output HDF5 file path")
+    parser.add_argument("--data-root", default=CAMARGO_DATA_ROOT, help="Path to raw Camargo dataset root")
+    parser.add_argument("--output", default=LEAPS_H5_PATH, help="Output HDF5 file path")
     parser.add_argument("--subjects", nargs="+", default=None,
                         help=f"Subjects to process (default: all {len(ALL_SUBJECTS)})")
     parser.add_argument("--ref-speed", type=float, default=1.35,
@@ -85,8 +49,8 @@ def main() -> None:
 
     subjects = args.subjects or ALL_SUBJECTS
 
-    # Discover trials for ALL modes — we need emg + gcRight always,
-    # conditions only for treadmill (speed filtering)
+    #Discover trials for ALL modes.
+    #we need emg + gcRight always, conditions only for treadmill to filter based on speed
     trials = discover_trials(
         args.data_root,
         subjects=subjects,
@@ -107,7 +71,7 @@ def main() -> None:
             logger.info("[%d/%d] Processing %s", i, len(trials), subj)
             subj_trials = trials[subj]
 
-            # --- Step 1: compute normalization from treadmill ---
+            #Step 2: time normalize with treadmill trials
             if "treadmill" not in subj_trials:
                 logger.warning("Skipping %s: no treadmill data for normalization", subj)
                 continue
@@ -125,10 +89,10 @@ def main() -> None:
                 continue
 
             min_vals, max_vals = compute_normalization(
-                tm_emg, tm_gc, tm_cond, ref_speed=args.ref_speed,
+                tm_emg, tm_gc, tm_cond, ref_speed=args.ref_speed,  #normalized here
             )
 
-            # --- Step 2: process all modes with shared normalization ---
+            #Process all modes with normalization
             subj_strides = []
             subj_modes = []
             subj_speeds = []
@@ -154,14 +118,14 @@ def main() -> None:
                     logger.warning("  %s/%s: some files failed to parse", subj, mode)
                     continue
 
-                # Load conditions tables for ALL modes:
-                #   - treadmill: used for speed-based stride filtering
-                #   - others:    used for per-sample label time-alignment
+                #Load conditions tables for ALL modes:
+                #   - treadmill for speed-based stride filtering
+                #   - others for per-sample label time-alignment
                 cond_files = sorted(mode_data.get("conditions", []))
                 cond_tables = [load_mat_table(f) for f in cond_files] if cond_files else None
 
-                # Extract condition labels for non-treadmill modes.
-                # For treadmill the condition is derived from the numeric Speed column.
+                #Extract condition labels for non-treadmill modes.
+                #for treadmill the condition is derived from the numeric Speed column.
                 condition_labels = None
                 if mode != "treadmill" and cond_files:
                     condition_labels = []
@@ -195,7 +159,7 @@ def main() -> None:
                     logger.debug("  %s/%s: 0 strides after filtering", subj, mode)
                     continue
 
-                # Log condition distribution for this mode
+                #log condition distribution for this mode
                 if mode != "treadmill":
                     from collections import Counter
                     cond_counts = Counter(mode_conditions)
@@ -214,13 +178,13 @@ def main() -> None:
                 logger.warning("Skipping %s: no valid strides across all modes", subj)
                 continue
 
-            # Concatenate all modes for this subject
+            #concat all modes for this subject
             all_strides = np.concatenate(subj_strides, axis=0)
             all_speeds = np.concatenate(subj_speeds, axis=0)
             all_trial_indices = np.concatenate(subj_trial_indices, axis=0)
             activations = all_strides.reshape(-1, all_strides.shape[-1])
 
-            # Write per-subject data
+            #Write per-subject data
             grp = hf.create_group(subj)
             grp.create_dataset("strides", data=all_strides, compression="gzip")
             str_dt = h5py.string_dtype()

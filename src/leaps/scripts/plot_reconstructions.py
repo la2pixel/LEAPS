@@ -73,17 +73,24 @@ def plot_r2_vs_latent_dim(results: list[dict], output_dir: Path) -> None:
         name = r["model"]
         if name not in models:
             models[name] = {"dims": [], "r2": [], "mse": []}
-        e = r.get("eval_metrics", {})
         models[name]["dims"].append(r["latent_dim"])
-        models[name]["r2"].append(e.get("r2", float("nan")))
-        models[name]["mse"].append(e.get("mse", float("nan")))
+        # results.json stores val_r2 / val_mse directly (not nested under eval_metrics)
+        r2 = r.get("val_r2", r.get("eval_metrics", {}).get("r2", float("nan")))
+        mse = r.get("val_mse", r.get("eval_metrics", {}).get("mse", float("nan")))
+        models[name]["r2"].append(r2)
+        models[name]["mse"].append(mse)
 
     # Style: distinct markers for each model type
     style_map = {
-        "StridePCA": ("o", "C0", "PCA"),
-        "StrideNMF": ("s", "C1", "NMF"),
-        "StrideCNMF": ("D", "C2", "CNMF"),
-        "StrideFlatAE": ("^", "C3", "AE (MLP)"),
+        "StridePCA":     ("o", "#2196F3", "PCA (linear)"),
+        "StrideNMF":     ("s", "#FF9800", "NMF (synergies)"),
+        "StrideCNMF":    ("D", "#9C27B0", "CNMF"),
+        "StrideAE":      ("^", "#4CAF50", "AE Conv1D"),
+        "StrideVAE":     ("v", "#F44336", "VAE Conv1D"),
+        "StrideWAE":     ("<", "#795548", "WAE Conv1D"),
+        "StrideFlatAE":  ("P", "#009688", "AE MLP"),
+        "StrideFlatVAE": ("*", "#E91E63", "VAE MLP"),
+        "StrideMAE":     ("h", "#607D8B", "MAE Conv1D"),
     }
 
     fig, (ax_r2, ax_mse) = plt.subplots(1, 2, figsize=(12, 5))
@@ -376,7 +383,7 @@ def main(argv=None):
         best = {}
         for r in results:
             name = r["model"]
-            r2 = r.get("eval_metrics", {}).get("r2", -1)
+            r2 = r.get("val_r2", r.get("eval_metrics", {}).get("r2", -1))
             if name not in best or r2 > best[name][1]:
                 best[name] = (r["latent_dim"], r2)
         pairs = [(name, dim) for name, (dim, _) in best.items()]

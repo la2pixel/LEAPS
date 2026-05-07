@@ -1,22 +1,14 @@
 """LocoMuJoCo environment for the gait10dof18musc 2D sagittal-plane humanoid.
 
-This model has 18 muscle actuators (9 per leg), 10 DOFs, and NO free joint.
-The root is defined by three separate joints: pelvis_tx (slide), pelvis_ty (slide),
-pelvis_tilt (hinge). We subclass LocoEnv directly (not BaseSkeleton) because
-BaseSkeleton assumes the full 92-muscle skeleton with arms, box feet, etc.
-
-MJX support (mjx_enabled = True):
-    MJX is MuJoCo's JAX backend that allows vmapping hundreds of envs in
-    parallel on GPU. PPOJax requires MJX — it vmaps env.step() over 2048
-    parallel environments, each running on different portions of the GPU.
-    The MJX reset uses _mjx_reset_carry() (JAX-compatible), which mirrors
-    the CPU _reset_carry() using jnp array operations instead of mujoco.*
-    calls.
+We subclass LocoEnv directly..
+MJX support (mjx_enabled = True)
+    
 """
 
 from pathlib import Path
 from typing import Any, List, Tuple, Union
 
+import jax
 import jax.numpy as jnp
 import mujoco
 import mujoco.mjx as mjx
@@ -29,31 +21,80 @@ from loco_mujoco.core.utils import info_property
 from loco_mujoco.environments import LocoEnv
 
 
-# Real DOF joint angles for a right-heel-strike initial pose.
-# The wrapping-path constraint joints (knee translations, vasti/gastroc/iliopsoas
-# waypoints) are LEFT at their keyframe-0 defaults — the very stiff equality
-# constraints (solimp=0.9999) snap them to the correct positions within 1-2 steps.
+# Reference State Initialization (RSI): 4 representative walking poses.
+# Covers one full gait cycle at roughly equal spacing (~0%, 30%, 60%, 80%).
 # Sign convention: positive hip_flexion = leg forward; knee_angle < 0 = flexion.
-_HEELSTRIKE_POSE = {
-    "pelvis_tilt":      -0.05,   # slight forward lean (prevents backward toppling)
-    "hip_flexion_r":    +0.30,   # right leg forward ~17° (heel contact)
-    "knee_angle_r":     -0.05,   # nearly fully extended (just before heel strike)
-    "ankle_angle_r":    +0.10,   # dorsiflexed ~6° so heel hits ground first
-    "hip_flexion_l":    -0.15,   # left leg behind ~9° (entering push-off)
-    "knee_angle_l":     -0.35,   # 20° knee flexion (loading response)
-    "ankle_angle_l":    -0.40,   # plantarflexed ~23° (propulsion phase)
-    "lumbar_extension":  0.0,    # neutral spine
+# Auxiliary constraint joints (knee translations, muscle wrapping waypoints) are
+# left at keyframe-0 defaults — equality constraints correct them within 1-2 steps.
+_INIT_POSES = [
+    # 0 — right heel strike (0% gait cycle)
+    {
+        "pelvis_tilt":      -0.05,
+        "hip_flexion_r":    +0.30,   # right leg forward ~17°
+        "knee_angle_r":     -0.05,   # nearly extended (heel contact)
+        "ankle_angle_r":    +0.10,   # dorsiflexed: heel hits first
+        "hip_flexion_l":    -0.15,   # left leg trailing ~9°
+        "knee_angle_l":     -0.35,   # loading response flexion
+        "ankle_angle_l":    -0.40,   # plantarflexed: push-off
+        "lumbar_extension":  0.0,
+    },
+    # 1 — right mid-stance (~30%): CoM over right foot, left leg swinging forward
+    {
+        "pelvis_tilt":       0.00,
+        "hip_flexion_r":     0.00,   # hip neutral
+        "knee_angle_r":     -0.15,   # slight flexion under load
+        "ankle_angle_r":    -0.08,   # mild plantarflexion (heel-to-ball)
+        "hip_flexion_l":    +0.10,   # swing leg moving forward
+        "knee_angle_l":     -0.50,   # clearance flexion
+        "ankle_angle_l":    -0.15,   # foot clearing ground
+        "lumbar_extension":  0.0,
+    },
+    # 2 — left heel strike (~60%): mirror of pose 0
+    {
+        "pelvis_tilt":      -0.05,
+        "hip_flexion_r":    -0.15,
+        "knee_angle_r":     -0.35,
+        "ankle_angle_r":    -0.40,
+        "hip_flexion_l":    +0.30,
+        "knee_angle_l":     -0.05,
+        "ankle_angle_l":    +0.10,
+        "lumbar_extension":  0.0,
+    },
+    # 3 — left mid-stance (~80%): mirror of pose 1
+    {
+        "pelvis_tilt":       0.00,
+        "hip_flexion_r":    +0.10,
+        "knee_angle_r":     -0.50,
+        "ankle_angle_r":    -0.15,
+        "hip_flexion_l":     0.00,
+        "knee_angle_l":     -0.15,
+        "ankle_angle_l":    -0.08,
+        "lumbar_extension":  0.0,
+    },
+]
+
+# for each joint, add gaussian noise std added on top of each pose at reset.
+# 0 for pelvis_tx and auxiliary joints.
+_INIT_NOISE_STD = {
+    "pelvis_ty":        0.02,   # ±2 cm height can vary
+    "pelvis_tilt":      0.03,   # ±1.7° trunk lean
+    "hip_flexion_r":    0.05,   # ±2.9° hip angle
+    "knee_angle_r":     0.05,
+    "ankle_angle_r":    0.03,
+    "hip_flexion_l":    0.05,
+    "knee_angle_l":     0.05,
+    "ankle_angle_l":    0.03,
+    "lumbar_extension": 0.02,
 }
 
-# Forward walking speed matching EMG recording conditions.
-_INIT_FORWARD_VELOCITY = 1.25  # m/s (Camargo dataset: level-ground 1.25 m/s)
+# Default forward walking speed m/s
+_DEFAULT_INIT_VELOCITY = 1.25  
 
 
-# Absolute path to the XML model (MyoConverter output of OpenSim Gait2392)
+# Absolute path to the XML model 
 _MODEL_DIR = Path(__file__).resolve().parent.parent.parent.parent / "models" / "humanoid"
-_DEFAULT_XML = str(_MODEL_DIR / "gait10dof18musc.xml")
+_DEFAULT_XML = str(_MODEL_DIR / "gait10dof18musc_fixed.xml")
 
-# 18 muscle actuators in XML order (9 right leg, 9 left leg)
 _ACTUATOR_NAMES = [
     "hamstrings_r", "bifemsh_r", "glut_max_r", "iliopsoas_r", "rect_fem_r", "vasti_r",
     "gastroc_r", "soleus_r", "tib_ant_r",
@@ -62,9 +103,6 @@ _ACTUATOR_NAMES = [
 ]
 
 
-# Foot geom names in the XML (from contact pair list in gait10dof18musc.xml).
-# These are the geoms that touch the ground-plane. For MJX we keep only the
-# most important ones (heel + toe) to keep the contact list small.
 _FOOT_GEOMS = [
     "calcn_r_geom_1",  # right heel
     "toes_r_geom_1",   # right toe
@@ -84,6 +122,12 @@ class Gait10dof18Musc(LocoEnv):
     2048 parallel envs on GPU). The MJX reset replicates the heel-strike pose
     using pure JAX array operations (_mjx_reset_carry), which is JIT-able and
     vmap-able without any Python-side MuJoCo calls.
+
+    Args:
+        init_velocity: Forward velocity set at reset (m/s). Default 1.25 matches
+            the Camargo dataset recording speed and LocoMuJoCo walk task speed.
+        init_noise_scale: Multiplier on all per-joint reset noise stds. 0 = no
+            noise (deterministic reset), 1 = default, >1 = more randomisation.
     """
 
     # MJX enabled: required for PPOJax's VecEnv (jax.vmap over parallel envs).
@@ -96,8 +140,18 @@ class Gait10dof18Musc(LocoEnv):
         spec: Union[str, MjSpec] = None,
         observation_spec: List[ObservationType] = None,
         actuation_spec: List[str] = None,
+        init_velocity: float = 1.25,
+        init_noise_scale: float = 1.0,
+        healthy_pelvis_height_min: float = 0.7,
+        healthy_pelvis_height_max: float = 1.3,
         **kwargs,
     ) -> None:
+        self._init_velocity = float(init_velocity)
+        self._init_noise_scale = float(init_noise_scale)
+        self._healthy_pelvis_height_range = (
+            float(healthy_pelvis_height_min),
+            float(healthy_pelvis_height_max),
+        )
         if spec is None:
             spec = self.get_default_xml_file_path()
 
@@ -163,6 +217,52 @@ class Gait10dof18Musc(LocoEnv):
         # Body index for right heel — used to compute ground contact height
         self._body_calcn_r       = _body_id("calcn_r")
 
+        # ── Precompute RSI pose arrays ───────────────────────────────────
+        # Build one qpos vector per initial pose (from keyframe-0 defaults).
+        # Auxiliary joints keep their keyframe values; eq constraints correct them at reset.
+        tmp_data = mujoco.MjData(model)
+        if model.nkey > 0:
+            mujoco.mj_resetDataKeyframe(model, tmp_data, 0)
+
+        pose_arrays = []
+        for pose_dict in _INIT_POSES:
+            q = tmp_data.qpos.copy()
+            for jnt_name, angle in pose_dict.items():
+                jid = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_JOINT, jnt_name)
+                if jid >= 0:
+                    q[int(model.jnt_qposadr[jid])] = angle
+            pose_arrays.append(q)
+
+        self._init_poses_jnp = jnp.array(np.stack(pose_arrays))  # (4, nq)
+        self._n_init_poses = len(_INIT_POSES)
+
+        # Noise std vector: non-zero only at real DOF qpos indices.
+        noise_std = np.zeros(model.nq)
+        for jnt_name, std in _INIT_NOISE_STD.items():
+            jid = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_JOINT, jnt_name)
+            if jid >= 0:
+                noise_std[int(model.jnt_qposadr[jid])] = std
+        self._init_noise_std = noise_std * self._init_noise_scale          # CPU numpy
+        self._init_noise_std_jnp = jnp.array(noise_std) * self._init_noise_scale  # JAX
+
+        # ── Precompute equality constraint parameters ────────────────────
+        # All 28 auxiliary joints (knee translations, muscle wrapping waypoints)
+        # are governed by joint-joint polynomial equality constraints of the form:
+        #   qpos[adr1] = c0 + c1*x + c2*x² + c3*x³ + c4*x⁴
+        # where x = qpos[adr2] (the driving real DOF).
+        # We extract these once at init (outside JIT) so both the CPU reset
+        # (_reset_carry) and the JAX reset (_mjx_reset_carry) can apply them
+        # using plain array indexing — no mujoco.* calls needed at runtime.
+        self._eq_constraints: list[tuple[int, int, np.ndarray]] = []
+        for i in range(model.neq):
+            if model.eq_type[i] == mujoco.mjtEq.mjEQ_JOINT:
+                j1 = int(model.eq_obj1id[i])
+                j2 = int(model.eq_obj2id[i])
+                adr1 = int(model.jnt_qposadr[j1])
+                adr2 = int(model.jnt_qposadr[j2])
+                coef = model.eq_data[i, :5].copy()  # polynomial coefficients c0..c4
+                self._eq_constraints.append((adr1, adr2, coef))
+
     # ── Class methods ──────────────────────────────────────────────────
 
     @classmethod
@@ -177,8 +277,8 @@ class Gait10dof18Musc(LocoEnv):
         # NoGoal: no additional goal observation (simpler obs space for PPO)
         kwargs.setdefault("terminal_state_type", "HeightJointTerminalStateHandler")
         kwargs.setdefault("goal_type", "NoGoal")
-        kwargs.setdefault("reward_type", "TargetXVelocityReward")
-        kwargs.setdefault("reward_params", {"target_velocity": _INIT_FORWARD_VELOCITY})
+        kwargs.setdefault("reward_type", "WalkingReward")
+        kwargs.setdefault("reward_params", {"alive_bonus": 0.5})
         return cls(**kwargs)
 
     # ── MJX: simplify contacts for parallel simulation ─────────────────
@@ -251,43 +351,66 @@ class Gait10dof18Musc(LocoEnv):
 
     @info_property
     def root_height_healthy_range(self) -> tuple:
-        # pelvis_ty in the default keyframe is ~0.95 m. Healthy range:
-        #   0.5 m: would be nearly on the ground (fallen)
-        #   1.3 m: unphysically high (should never happen)
-        return (0.5, 1.3)
+        return self._healthy_pelvis_height_range
+
+    # ── Equality constraint helpers ────────────────────────────────────
+
+    def _apply_eq_constraints_cpu(self, data: MjData) -> None:
+        """Set all constraint joint qpos values from their polynomial equality constraints.
+
+        Called after setting real DOFs so that the auxiliary joints (knee translations,
+        muscle wrapping waypoints) start at their geometrically correct positions
+        rather than the keyframe defaults.
+        """
+        for adr1, adr2, coef in self._eq_constraints:
+            x = data.qpos[adr2]
+            data.qpos[adr1] = coef[0] + coef[1]*x + coef[2]*x**2 + coef[3]*x**3 + coef[4]*x**4
+
+    def _apply_eq_constraints_jax(self, data: Data) -> Data:
+        """JAX version of _apply_eq_constraints_cpu — JIT-safe, vmap-safe.
+
+        All loop bounds and indices are Python-level integers (computed at init),
+        so JAX traces through the loop as a sequence of scalar operations.
+        """
+        qpos = data.qpos
+        for adr1, adr2, coef in self._eq_constraints:
+            x = qpos[adr2]
+            val = coef[0] + coef[1]*x + coef[2]*x**2 + coef[3]*x**3 + coef[4]*x**4
+            qpos = qpos.at[adr1].set(val)
+        return data.replace(qpos=qpos)
 
     # ── CPU reset (non-MJX, used for evaluation / rendering) ──────────
 
     def _reset_carry(
         self, model: MjModel, data: MjData, carry: Any
     ) -> Tuple[MjData, Any]:
-        """Reset to a right-heel-strike pose with forward walking velocity.
+        """RSI reset: randomly pick one of 4 gait phases + Gaussian noise.
 
-        CPU version (numpy-based). Used when running the env without MJX
-        (e.g. for recording videos, interactive inspection).
-
-        Why we need a custom reset:
-            The default keyframe is a symmetric standing pose at v=0.
-            EMG data was recorded during steady-state walking at 1.25 m/s.
-            Starting from rest causes an immediate state mismatch → fall.
+        CPU version (numpy-based). Used for rendering and evaluation.
 
         Steps:
-            1. Load keyframe-0 (sets pelvis_ty=0.95, constraint joint 0°)
-            2. Set real DOFs to heel-strike asymmetric pose
-            3. Correct pelvis height so right heel is at ground (z=0)
-            4. Set pelvis_tx velocity to 1.25 m/s
+            1. Load keyframe-0 defaults
+            2. Randomly choose one of the 4 representative gait poses
+            3. Apply equality constraints (auxiliary joints)
+            4. Correct pelvis height so the right heel is at z=0
+            5. Add per-joint Gaussian noise
+            6. Set pelvis_tx velocity to 1.25 m/s
         """
         data, carry = super()._reset_carry(model, data, carry)
 
         if model.nkey > 0:
             mujoco.mj_resetDataKeyframe(model, data, 0)
 
-        for jnt_name, angle in _HEELSTRIKE_POSE.items():
+        # Randomly pick one of the representative gait poses
+        pose_idx = int(np.random.randint(self._n_init_poses))
+        for jnt_name, angle in _INIT_POSES[pose_idx].items():
             jid = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_JOINT, jnt_name)
             if jid >= 0:
                 data.qpos[model.jnt_qposadr[jid]] = angle
 
-        # Run forward kinematics to get body positions before we correct height
+        self._apply_eq_constraints_cpu(data)
+
+        # Heel height correction: shift pelvis_ty so right heel is at z=0
         mujoco.mj_kinematics(model, data)
         calcn_r_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "calcn_r")
         if calcn_r_id >= 0:
@@ -295,9 +418,12 @@ class Gait10dof18Musc(LocoEnv):
             pelvis_ty_jid = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_JOINT, "pelvis_ty")
             data.qpos[model.jnt_qposadr[pelvis_ty_jid]] -= heel_z
 
+        # Add Gaussian noise to real DOFs (zero elsewhere via _init_noise_std)
+        data.qpos += np.random.normal(0.0, self._init_noise_std)
+
         pelvis_tx_jid = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_JOINT, "pelvis_tx")
         if pelvis_tx_jid >= 0:
-            data.qvel[model.jnt_dofadr[pelvis_tx_jid]] = _INIT_FORWARD_VELOCITY
+            data.qvel[model.jnt_dofadr[pelvis_tx_jid]] = self._init_velocity
 
         mujoco.mj_forward(model, data)
         return data, carry
@@ -307,71 +433,48 @@ class Gait10dof18Musc(LocoEnv):
     def _mjx_reset_carry(
         self, model: Model, data: Data, carry: Any
     ) -> Tuple[Data, Any]:
-        """JAX-JIT-able heel-strike reset for MJX (used by PPOJax VecEnv).
+        """RSI reset for MJX — JIT-able, vmap-able over parallel envs.
 
-        This mirrors _reset_carry() but uses pure jnp array operations so
-        it can be compiled with jax.jit and vmapped over thousands of parallel
-        environments.
+        Randomly picks one of 4 gait poses using carry.key, then adds
+        per-joint Gaussian noise. Mirrors _reset_carry() in pure JAX.
 
-        Key difference from CPU reset:
-            - No mujoco.mj_* calls (not JAX-compatible)
-            - Uses .replace() (functional update — MJX Data is immutable)
-            - mjx.forward() replaces mujoco.mj_kinematics() + mj_forward()
-            - Joint indices (self._qpos_*, self._qvel_*) were computed at
-              construction time and are treated as compile-time constants.
-
-        Math for heel-height correction:
-            After setting qpos to the heel-strike pose, the right heel body
-            (calcn_r) may be above or below z=0 (ground plane). We read
-            data.xpos[calcn_r_id, 2] after mjx.forward(), then subtract
-            that height from pelvis_ty so the heel is exactly at z=0.
-
-            pelvis_ty_new = pelvis_ty_old - xpos[calcn_r, z-axis]
+        Why random pose selection works in JIT/vmap:
+            _init_poses_jnp is a (4, nq) constant. Indexing with a traced
+            integer (jax.random.randint output) is a valid JAX dynamic index
+            — it compiles to an XLA gather op. Each of the 2048 parallel
+            envs gets an independently sampled pose_idx from its own subkey.
         """
-        # ── Set heel-strike joint angles ─────────────────────────────────
-        # data.qpos is a JAX array (shape [nq,]). .at[idx].set(val) is the
-        # JAX functional equivalent of qpos[idx] = val (immutable update).
-        qpos = data.qpos
-        qpos = qpos.at[self._qpos_pelvis_tilt].set(-0.05)
-        qpos = qpos.at[self._qpos_hip_r].set(+0.30)
-        qpos = qpos.at[self._qpos_knee_r].set(-0.05)
-        qpos = qpos.at[self._qpos_ankle_r].set(+0.10)
-        qpos = qpos.at[self._qpos_hip_l].set(-0.15)
-        qpos = qpos.at[self._qpos_knee_l].set(-0.35)
-        qpos = qpos.at[self._qpos_ankle_l].set(-0.40)
-        qpos = qpos.at[self._qpos_lumbar].set(0.0)
-        data = data.replace(qpos=qpos)
+        # ── Split carry.key for reproducible, independent randomness ─────
+        key, k_pose, k_noise = jax.random.split(carry.key, 3)
+        carry = carry.replace(key=key)
 
-        # ── Set forward walking velocity ─────────────────────────────────
-        # pelvis_tx is a slide joint → its single DOF address gives forward vel.
-        qvel = data.qvel
-        qvel = qvel.at[self._qvel_pelvis_tx].set(_INIT_FORWARD_VELOCITY)
+        # ── Pick random initial pose ─────────────────────────────────────
+        pose_idx = jax.random.randint(k_pose, shape=(), minval=0, maxval=self._n_init_poses)
+        data = data.replace(qpos=self._init_poses_jnp[pose_idx])
+
+        # Apply polynomial equality constraints (auxiliary joints)
+        data = self._apply_eq_constraints_jax(data)
+
+        # ── Forward velocity ─────────────────────────────────────────────
+        qvel = data.qvel.at[self._qvel_pelvis_tx].set(self._init_velocity)
         data = data.replace(qvel=qvel)
 
-        # ── Run forward kinematics to compute body positions ─────────────
-        # mjx.forward() propagates qpos → body positions (xpos), site frames,
-        # geom positions, etc. Equivalent to mujoco.mj_kinematics + mj_forward
-        # but JAX-differentiable and JIT-compilable.
+        # ── Heel height correction ───────────────────────────────────────
         data = mjx.forward(model, data)
-
-        # ── Heel-height correction ───────────────────────────────────────
-        # After setting the leg angles, the right heel body (calcn_r) may
-        # be above the floor (z > 0) because hip_flexion_r > 0 shifts the
-        # entire leg forward and upward relative to the keyframe. We read
-        # the heel's world-z from xpos (already computed by mjx.forward above)
-        # and shift pelvis_ty down by that amount.
-        heel_z = data.xpos[self._body_calcn_r, 2]  # JAX scalar: heel height in world frame
+        heel_z = data.xpos[self._body_calcn_r, 2]
         qpos = data.qpos.at[self._qpos_pelvis_ty].set(
             data.qpos[self._qpos_pelvis_ty] - heel_z
         )
         data = data.replace(qpos=qpos)
 
-        # Final forward pass with corrected pelvis height
+        # ── Gaussian noise on real DOFs ──────────────────────────────────
+        noise = jax.random.normal(k_noise, shape=(model.nq,)) * self._init_noise_std_jnp
+        data = data.replace(qpos=data.qpos + noise)
+
+        # Final forward pass
         data = mjx.forward(model, data)
 
-        # ── Run parent handlers (terminal state, reward, etc.) ────────────
-        # The parent _mjx_reset_carry resets stateful objects like the reward
-        # function state, domain randomizer, and initial state handler.
+        # Parent resets reward state, domain randomizer, terminal handler, etc.
         data, carry = super()._mjx_reset_carry(model, data, carry)
         return data, carry
 

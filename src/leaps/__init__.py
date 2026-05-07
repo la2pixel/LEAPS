@@ -16,12 +16,9 @@ from leaps.data import (
     train_val_split,
 )
 from leaps.models import (
-    Autoencoder,
     EMGModel,
-    MaskedAutoencoder,
     NMFModel,
     PCAModel,
-    VAE,
 )
 
 __all__ = [
@@ -30,7 +27,6 @@ __all__ = [
     "load_camargo_dataset",
     "load_mat_table",
     "parse_camargo",
-    "process_subject",
     "rectify_emg",
     "EMGDataset",
     "load_activations",
@@ -39,7 +35,4 @@ __all__ = [
     "EMGModel",
     "PCAModel",
     "NMFModel",
-    "Autoencoder",
-    "VAE",
-    "MaskedAutoencoder",
 ]
