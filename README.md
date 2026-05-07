@@ -1,40 +1,38 @@
-# LEAPS: Learning Humanoid Locomotion from EMG-Based Latent Action Priors and Muscle Synergies
+# LEAPS
 
-[![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+EMG-based latent action priors for muscle-actuated humanoid locomotion.
 
+Plug in any gait EMG dataset → physiologically grounded, sample-efficient RL agent via the LEAPS framework.
 
-## Overview
+**Simulator**: SCONE + Hyfydy via sconegym | **Models**: H0918 (2D, 18 muscles), MyoLeg (3D)
 
-LEAPS learns muscle-actuated humanoid locomotion by extracting low-dimensional action representations from human EMG data using:
-- **Latent Action Priors**: Autoencoder-based latent space
-- **Muscle Synergies**: NMF-based muscle groupings
+---
 
-## Installation
+## Setup
+
+See [SETUP.md](SETUP.md) for full instructions. Short version:
+
 ```bash
-pip install -e .
+# Set data paths
+export LEAPS_RAW_DATA=/path/to/camargo
+export LEAPS_PROCESSED_DATA=/path/to/emg_activations_v2.h5
+
+# Install
+python3 -m venv .venv && source .venv/bin/activate
+pip install -e ".[dev,wandb]"
+pip install -e /path/to/sconegym
 ```
 
-## Quick Start
-```python
-from leaps.data import EMGPreprocessor
-from leaps.models import SynergyExtractor, LatentActionPrior
+## Commands
 
-# Preprocess EMG
-preprocessor = EMGPreprocessor()
-data = preprocessor.process_trial(emg, heel_strikes)
-
-# Extract synergies
-synergies = SynergyExtractor(n_synergies=5)
-synergies.fit(data)
-
-# Train latent prior
-prior = LatentActionPrior(latent_dim=8)
-prior.fit(data)
-```
-}
+```bash
+leaps-preprocess        # build HDF5 from raw Camargo .mat files
+leaps-train-snapshot    # train HausdorferAE (spatial prior)
+leaps-train-strides     # train StrideFlatAE / sweep (temporal prior + baselines)
+leaps-visualize         # EMG pipeline diagnostic plots
+leaps-visualize-snapshot  # AE reconstruction quality
 ```
 
 ## License
 
-MIT License - see LICENSE file.
+MIT
