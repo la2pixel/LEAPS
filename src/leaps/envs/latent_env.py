@@ -16,35 +16,47 @@ final_action reduces to residual_weight * a_full, exactly as before this fix.
 The decoder is the one trained in notebooks/get_synergy.ipynb -- frozen
 here (requires_grad=False, eval mode), never updated by RL.
 
-HERE! This used to be a plain sum, `a_hat + residual_weight * a_full`. Both
-a_hat and a_full are in [0, 1] (decoder ends in Sigmoid, EMGToMuscleMapper's
-weight rows sum to 1, policy's action_space is a [0,1] Box), and a_full was
-never allowed to go negative -- so final_action was provably >= a_hat
-pointwise, every mapped muscle, every timestep. The residual could only push
-a mapped muscle's activation up, never correct it down, no matter how wrong
-a_hat was for that instant of the gait cycle. That specifically handicapped
-the actuators that *do* carry a real EMG prior, relative to a null_prior
-control (a_hat=0 everywhere, so its residual always had the full
-[0, residual_weight] range available in either direction). The convex-
-combination form fixes this: a_full can now pull final_action toward 0 or
-toward 1 relative to a_hat. This also matches the reference paper's own `w`
-semantics properly for the first time -- their action is torque
-(bidirectional by nature), ours is muscle excitation (one-directional), so
-this convex blend within [0,1] is the closest equivalent. Runs from before
-this change used the additive form and are NOT directly comparable to runs
-after it: residual_weight now means "trust weight between prior and
-residual" instead of "size of an additive bonus on top of an
-always-full-strength prior." null_prior and plain-MPO/DEP-MPO runs are
+HERE! This used to be a plain sum, `a_hat + residual_weight * a_full`.
+a_full is in [0, 1] (policy's action_space is a [0,1] Box) and never allowed
+to go negative -- so under the old formula final_action was provably >=
+a_hat pointwise, every mapped muscle, every timestep, regardless of a_hat's
+own scale. The residual could only push a mapped muscle's activation up,
+never correct it down, no matter how wrong a_hat was for that instant of the
+gait cycle. That specifically handicapped the actuators that *do* carry a
+real EMG prior, relative to a null_prior control (a_hat=0 everywhere, so its
+residual always had the full [0, residual_weight] range available in either
+direction). The convex-combination form fixes this: a_full can now pull
+final_action toward a_hat's own value from either side, restoring genuine
+bidirectional correction -- verified directly (not just by construction):
+a live env smoke test with a_full forced to 0 showed final_action < a_hat on
+mapped muscles, impossible under the old formula.
+
+CORRECTION (caught by that same smoke test, not assumed): a_hat is NOT
+bounded to [0, 1] the way this comment originally claimed. The decoder's
+Sigmoid output *is* in [0,1], but `_from_unit()` (line ~131) immediately
+rescales it back into raw EMG signal units via p01/p99 -- the inverse of the
+[0,1] normalization the decoder was trained under (see get_synergies.py) --
+before EMGToMuscleMapper's weighted average (rows sum to 1, but over
+raw-unit values, not [0,1] ones) produces a_hat. Empirically, a_hat reached
+~1.9 in a live smoke test at k=6. So "final_action is a convex combination
+of two [0,1] values, hence bounded to [0,1]" is false in general -- the
+bidirectional-correction property above still holds regardless (it only
+needs a_full >= 0 and residual_weight in [0,1], not a_hat <= 1), but
+final_action itself can still exceed 1, same as it could before this fix.
+SconeWrapper's downstream clip to [0, 0.5] (clip_actions=True) or [0, 1.0]
+otherwise is what actually bounds what the muscles see, exactly as before --
+this fix changes the *shape* of that pre-clip value, not whether clipping
+still matters.
+
+Runs from before this change used the additive form and are NOT directly
+comparable to runs after it: residual_weight now means "trust weight
+between prior and residual" instead of "size of an additive bonus on top of
+an always-full-strength prior." null_prior and plain-MPO/DEP-MPO runs are
 unaffected (a_hat=0 makes the two formulas identical), so only the real-EMG
 latent-prior conditions need re-running for a fair comparison.
 
-Note: final_action is always within [0, 1] here (a convex combination of two
-[0,1] values), but SconeWrapper still clips the real actuator input
-downstream to [0, 0.5] (clip_actions=True) or [0, 1.0] otherwise -- that's a
-separate physiological/model constraint, unrelated to this formula.
-Diagnostics (latent_residual_share etc.) are therefore still computed
-post-clip in _diagnostics_post_clip(), not inline in action() -- see there
-for why.
+Diagnostics (latent_residual_share etc.) are computed post-clip in
+_diagnostics_post_clip(), not inline in action() -- see there for why.
 """
 
 import gym
