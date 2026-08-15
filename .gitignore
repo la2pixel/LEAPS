@@ -77,6 +77,9 @@ tmp/
 # Generated plots
 plots/
 
+# Experiment configs + run tracking (data, not source)
+baselines_DEPRL/
+
 # Model weights / checkpoints
 *.pt
 *.pth
