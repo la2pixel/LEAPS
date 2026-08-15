@@ -119,6 +119,10 @@ def _environment_expr(spec: RunSpec) -> str:
         parts.append("null_prior=True")
     elif spec.category == Category.UNTRAINED_LAP:
         parts.append("untrained_decoder=True")
+    # Only emitted when non-default, so every existing golden-file config
+    # (all mirror_mode="static") stays byte-for-byte unchanged.
+    if spec.mirror_mode != "static":
+        parts.append(f"mirror_mode='{spec.mirror_mode}'")
     return "leaps.envs.LatentActionPriorWrapper(" + ", ".join(parts) + ")"
 
 

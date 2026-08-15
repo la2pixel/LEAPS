@@ -57,6 +57,7 @@ class RunSpec:
     mapped_residual_weight: float = 0.5  # "w" -- NOT residual_weight, which stays 1.0 (what????)
     residual_weight: float = 1.0
     mirror_left: bool = True
+    mirror_mode: str = "static"  # "static" (existing) or "phase" (heel-strike-triggered, 2026-08-15)
     decoder_source: DecoderSource = DecoderSource.POOLED
 
     # DEP_MPO-only.
@@ -74,6 +75,8 @@ class RunSpec:
             raise ValueError(f"dim_latent must be positive, got {self.dim_latent}")
         if self.net_size <= 0:
             raise ValueError(f"net_size must be positive, got {self.net_size}")
+        if self.mirror_mode not in ("static", "phase"):
+            raise ValueError(f"mirror_mode must be 'static' or 'phase', got {self.mirror_mode!r}")
 
     @property
     def num_acts(self) -> int:

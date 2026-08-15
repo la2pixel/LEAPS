@@ -59,19 +59,24 @@ Diagnostics (latent_residual_share etc.) are computed post-clip in
 _diagnostics_post_clip(), not inline in action() -- see there for why.
 """
 
+from typing import Optional
+
 import gym
 import numpy as np
 import torch
 import torch.nn as nn
 
-from leaps.envs.emg_mapping import EMGToMuscleMapper
+from leaps.envs.emg_mapping import EMG_CHANNELS, EMGToMuscleMapper
+from leaps.envs.phase_mirror import PhaseMirror
 
 
-def build_decoder(dim_latent: int, dim_a: int = 11, hidden: int = None) -> nn.Sequential:
-    """Same architecture as LatentActionAESmall.decoder in get_synergy.ipynb."""
+def build_decoder(dim_latent: int, dim_a: int = 11, hidden: int = None, cond_dim: int = 0) -> nn.Sequential:
+    """Same architecture as LatentActionAESmall.decoder in get_synergy.ipynb.
+    cond_dim widens the input layer for a conditioned decoder (e.g.
+    speed_cond below) -- 0 reproduces the original unconditioned shape."""
     h = hidden or 2 * dim_latent
     return nn.Sequential(
-        nn.Linear(dim_latent, h), nn.Tanh(),
+        nn.Linear(dim_latent + cond_dim, h), nn.Tanh(),
         nn.Linear(h, dim_a), nn.Sigmoid(),
     )
 
@@ -94,22 +99,61 @@ class LatentActionPriorWrapper(gym.ActionWrapper):
     def __init__(
         self, env, model_name: str, decoder_path: str, norm_path: str,
         dim_latent: int, residual_weight: float = 0.5, mirror_left: bool = False,
-        null_prior: bool = False,
+        null_prior: bool = False, mapped_residual_weight: Optional[float] = None,
+        untrained_decoder: bool = False, speed_cond: Optional[float] = None,
+        proxy_map: Optional[dict[str, str]] = None, mirror_mode: str = "static",
     ):
         super().__init__(env)
         actuator_names = [a.name() for a in env.unwrapped.model.actuators()]
+        # mirror_mode="static" reproduces every existing config's behavior
+        # exactly (mirror_left passed straight through to EMGToMuscleMapper,
+        # same-instant copy). "phase" builds real-content-only ("_r" rows)
+        # weights instead and hands them to a PhaseMirror, which fills the
+        # "_l" rows itself with a heel-strike-timed lag -- see
+        # phase_mirror.py for why this is a separate stateful class rather
+        # than a EMGToMuscleMapper option.
+        if mirror_mode not in ("static", "phase"):
+            raise ValueError(f"mirror_mode must be 'static' or 'phase', got {mirror_mode!r}")
+        self.mirror_mode = mirror_mode
+
+        # proxy_map (e.g. envs.H2190_SCOPE_PROXY): extends both the real
+        # content mapping and mapped_residual_weight's scope onto actuators
+        # with no EMG channel of their own but a strong anatomical synergist
+        # that does -- see emg_mapping.py for why this matters on low-coverage
+        # bodies. None reproduces every existing config's behavior exactly.
         self.mapper = EMGToMuscleMapper(
-            model_name, actuator_names, mirror_left=mirror_left, null_prior=null_prior
+            model_name, actuator_names,
+            mirror_left=(mirror_left if mirror_mode == "static" else False),
+            null_prior=null_prior, proxy_map=proxy_map,
         )
+        self.phase_mirror = (
+            PhaseMirror(self.mapper.weights, actuator_names) if mirror_mode == "phase" else None
+        )
+        # Looked up once here, not per step -- same contact_force() access
+        # pattern as gaitgym.py's _get_self_contact(), which is what
+        # confirms "calcn_r"/"calcn_l" are the actual foot bodies.
+        self._foot_bodies = None
+        if mirror_mode == "phase":
+            bodies = {b.name(): b for b in env.unwrapped.model.bodies()}
+            self._foot_bodies = {"r": bodies["calcn_r"], "l": bodies["calcn_l"]}
         self.n_actuators = len(actuator_names)
         self.dim_latent = dim_latent
-        self.residual_weight = residual_weight
 
         # For compensation tracking (see notes/representation_learning.md
         # discussion): which actuators get a real decoded prior vs. rely
         # entirely on the residual, and left/right split (left leg has no
-        # prior unless mirror_left=True -- see emg_mapping.py).
-        self._mapped_mask = self.mapper.weights.sum(axis=1) > 0
+        # prior unless mirror_left=True -- see emg_mapping.py). Computed from
+        # a null_prior=False reference mapper regardless of this wrapper's
+        # own null_prior setting -- null_prior deliberately leaves
+        # self.mapper.weights all-zero (see EMGToMuscleMapper), so reading
+        # the mask off self.mapper directly would silently give an
+        # all-False mask on every null_prior run, breaking both the
+        # diagnostics below and the mapped_residual_weight override.
+        _reference_mapper = EMGToMuscleMapper(
+            model_name, actuator_names, mirror_left=mirror_left, null_prior=False,
+            proxy_map=proxy_map,
+        )
+        self._mapped_mask = _reference_mapper.weights.sum(axis=1) > 0
         self._right_mask = np.array([n.endswith("_r") for n in actuator_names])
         self._left_mask = np.array([n.endswith("_l") for n in actuator_names])
         # Per-muscle names for the actuators that *do* get an EMG prior --
@@ -117,8 +161,48 @@ class LatentActionPriorWrapper(gym.ActionWrapper):
         # top of something, rather than being the sole control signal.
         self._mapped_names = [n for n, m in zip(actuator_names, self._mapped_mask) if m]
 
-        self.decoder = build_decoder(dim_latent)
-        self.decoder.load_state_dict(torch.load(decoder_path, map_location="cpu"))
+        # residual_weight is normally a scalar (paper's fixed blend weight
+        # everywhere). mapped_residual_weight lets the hard-constraint
+        # ablation pin a *different*, typically much lower, weight on just
+        # the actuators that actually have a real EMG-derived prior --
+        # everything else keeps the plain scalar residual_weight. Kept as a
+        # plain float when mapped_residual_weight is unset so every existing
+        # config's behavior is bit-for-bit unchanged.
+        if mapped_residual_weight is not None:
+            w = np.full(self.n_actuators, residual_weight, dtype=np.float32)
+            w[self._mapped_mask] = mapped_residual_weight
+            self.residual_weight = w
+        else:
+            self.residual_weight = residual_weight
+
+        # speed_cond: a fixed, known walking speed (m/s) to condition the
+        # decoder on every step -- unlike gait phase (no online ground-truth
+        # signal exists in the sim), every sconewalk_* env targets one
+        # constant speed, so this is genuinely deployable, not just a
+        # training-time diagnostic. Requires a decoder trained with
+        # speed_train (see leaps/models/train_speed_decoder.py) and a
+        # norm.npz with speed_lo/speed_hi -- widens the decoder's input
+        # layer by 1, so an unconditioned decoder.pt will not load into a
+        # speed_cond decoder shape (mismatched state_dict, fails loudly).
+        self.speed_cond = speed_cond
+        cond_dim = 1 if speed_cond is not None else 0
+        self.decoder = build_decoder(dim_latent, cond_dim=cond_dim)
+        # HERE! untrained_decoder is the content-vs-availability control: skip
+        # loading the fitted state dict entirely, so self.decoder stays at
+        # its random nn.Linear init. This gives a_hat the same nonzero,
+        # similarly-scaled output range as the real condition (same p01/p99
+        # rescaling below, same Sigmoid-bounded architecture) but with no
+        # learned relationship to actual muscle synergy content -- unlike
+        # null_prior (a_hat=0 identically), which under a tight
+        # mapped_residual_weight forces those actuators toward near-total
+        # paralysis (final_action = mapped_residual_weight * a_full, e.g. a
+        # hard 0.1 ceiling at mapped_residual_weight=0.1) rather than
+        # isolating whether the EMG *content* specifically matters. Same
+        # architecture/rescaling as the trained case in every other respect,
+        # so this isolates content from availability instead of conflating
+        # "no prior" with "crippled activation range."
+        if not untrained_decoder:
+            self.decoder.load_state_dict(torch.load(decoder_path, map_location="cpu"))
         # Explicit, not just map_location above -- nn.Linear() inside
         # build_decoder() creates its params on whatever torch's *current*
         # default device is (main.py sets this to cuda when available), so
@@ -134,6 +218,19 @@ class LatentActionPriorWrapper(gym.ActionWrapper):
         norm = np.load(norm_path)
         self.p01, self.p99 = norm["p01"], norm["p99"]
         self.z_lo, self.z_hi = norm["z_lo"], norm["z_hi"]
+
+        if speed_cond is not None:
+            speed_lo, speed_hi = float(norm["speed_lo"]), float(norm["speed_hi"])
+            speed_u = (speed_cond - speed_lo) / (speed_hi - speed_lo)
+            # HERE! explicit device="cpu" -- torch.tensor() without it picks
+            # up the ambient default device (main.py sets this to cuda when
+            # available), while torch.from_numpy(z) in action() below is
+            # always CPU regardless. Mismatched device torch.cat crashed a
+            # live run on this exact gotcha (already flagged for the decoder
+            # itself a few lines up) before this fix.
+            self._speed_cond_tensor = torch.tensor([[speed_u]], dtype=torch.float32, device="cpu")
+        else:
+            self._speed_cond_tensor = None
 
         # policy outputs: dim_latent (z) + n_actuators (a_full)
         self.action_space = gym.spaces.Box(
@@ -152,9 +249,17 @@ class LatentActionPriorWrapper(gym.ActionWrapper):
         z = self._to_z_domain(z_u)
 
         with torch.no_grad():
-            emg_u = self.decoder(torch.from_numpy(z)[None])[0].numpy()
+            z_t = torch.from_numpy(z)[None]
+            if self._speed_cond_tensor is not None:
+                z_t = torch.cat([z_t, self._speed_cond_tensor], dim=-1)
+            emg_u = self.decoder(z_t)[0].numpy()
         emg = self._from_unit(emg_u)
-        a_hat = self.mapper.map_emg_to_muscles(emg)
+        if self.mirror_mode == "phase":
+            contact_r = np.sum(np.abs(self._foot_bodies["r"].contact_force().array()))
+            contact_l = np.sum(np.abs(self._foot_bodies["l"].contact_force().array()))
+            a_hat = self.phase_mirror.step(emg, contact_r, contact_l)
+        else:
+            a_hat = self.mapper.map_emg_to_muscles(emg)
 
         # HERE! Convex combination, not addition -- see the module
         # docstring's HERE! note for the full reasoning. a_hat and a_full are
@@ -175,8 +280,21 @@ class LatentActionPriorWrapper(gym.ActionWrapper):
         # the real clip bound is known.
         self._last_a_hat = a_hat
         self._last_final_action = final_action
+        # Raw decoded EMG, pre-muscle-mapping -- 2026-08-11: previously
+        # computed every step and discarded, never logged. Not clipped (the
+        # physiological clip applies to actuator inputs post-mapping, not
+        # here) -- logged as-is.
+        self._last_emg = emg
 
         return final_action
+
+    def reset(self, **kwargs):
+        # PhaseMirror's buffer/heel-strike state must not carry over between
+        # episodes -- a stale buffer from the previous episode would produce
+        # a nonsense lagged lookup on the first steps of a new one.
+        if self.phase_mirror is not None:
+            self.phase_mirror.reset()
+        return self.env.reset(**kwargs)
 
     def _diagnostics_post_clip(self, clip_lo: float, clip_hi: float) -> dict:
         """HERE! Residual/prior diagnostics computed on the values actually
@@ -245,5 +363,15 @@ class LatentActionPriorWrapper(gym.ActionWrapper):
         # get diluted into a leg-wide average.
         for name, r in zip(self._mapped_names, mapped_residual):
             diagnostics[f"train/latent_residual_abs/{name}"] = float(abs(r))
+
+        # 2026-08-11: per-muscle PRIOR magnitude (as opposed to the residual
+        # correction on top of it) and the raw pre-mapping 11-channel decoded
+        # EMG -- neither was logged before, so "which of the 11 EMGs/mapped
+        # muscles does the prior itself lean on, and does that shift over
+        # training" was unanswerable from any existing run.
+        for name, a in zip(self._mapped_names, mapped_a_hat):
+            diagnostics[f"train/latent_prior_abs/{name}"] = float(abs(a))
+        for name, e in zip(EMG_CHANNELS, self._last_emg):
+            diagnostics[f"train/decoded_emg/{name}"] = float(e)
 
         return diagnostics
