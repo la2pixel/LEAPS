@@ -45,6 +45,7 @@ class PhaseMirror:
         default_half_period: float = 50.0,
         contact_threshold: float = 0.1,
         smoothing: float = 0.2,
+        refractory_period: int = 20,
     ):
         # weights_right_only: (n_actuators, 11), real content on _r rows,
         # zero on _l rows -- i.e. an EMGToMuscleMapper built with
@@ -56,6 +57,7 @@ class PhaseMirror:
         self.default_half_period = default_half_period
         self.contact_threshold = contact_threshold
         self.smoothing = smoothing
+        self.refractory_period = refractory_period
 
         # Which _r row (with real, nonzero content) feeds which _l row.
         # Computed once at construction, not per step.
@@ -81,16 +83,30 @@ class PhaseMirror:
 
     def _update_period_estimate(self, side: str, contact: float) -> None:
         rising_edge = self._prev_contact[side] < self.contact_threshold <= contact
-        if rising_edge:
-            last = self._last_heel_strike[side]
-            if last is not None:
-                period = self._t - last
-                sample = period / 2.0
-                self._half_period_estimate = (
-                    (1 - self.smoothing) * self._half_period_estimate + self.smoothing * sample
-                )
-            self._last_heel_strike[side] = self._t
         self._prev_contact[side] = contact
+        if not rising_edge:
+            return
+
+        last = self._last_heel_strike[side]
+        # Real stance phases dip mid-contact (e.g. observed 949 -> 153 -> 836
+        # on a real rollout, never crossing back below threshold) but a
+        # noisier one can briefly cross under contact_threshold and back --
+        # without this, that registers as a second "heel-strike" a few steps
+        # after the real one, corrupting the period estimate with spurious
+        # short samples (confirmed empirically: a real rollout produced
+        # 3-11 step "periods" from exactly this before this guard existed).
+        # A stride's own half-period is ~40-70 steps at 100Hz, so 20 steps
+        # is comfortably below any real strike-to-strike interval.
+        if last is not None and self._t - last < self.refractory_period:
+            return
+
+        if last is not None:
+            period = self._t - last
+            sample = period / 2.0
+            self._half_period_estimate = (
+                (1 - self.smoothing) * self._half_period_estimate + self.smoothing * sample
+            )
+        self._last_heel_strike[side] = self._t
 
     def step(self, emg: np.ndarray, contact_r: float, contact_l: float) -> np.ndarray:
         """One step: detect heel-strike on each foot, update the running

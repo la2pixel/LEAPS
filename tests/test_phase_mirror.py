@@ -107,3 +107,29 @@ def test_reset_clears_state():
     assert len(pm._emg_buffer) == 0
     assert pm._half_period_estimate == 10.0
     assert pm._last_heel_strike == {"r": None, "l": None}
+
+
+def test_refractory_period_ignores_mid_stance_dip():
+    """A real rollout showed contact briefly dip and recover mid-stance
+    (949 -> 153 -> 836, never actually crossing under 0.1) but a noisier
+    one can cross the threshold and back within a few steps -- that must
+    not register as a second heel-strike. Tracking calls by index: call i
+    (0-indexed) sees self._t == i during processing, self._t == i+1 after."""
+    pm = PhaseMirror(
+        _weights_right_only(), ACTUATOR_NAMES,
+        default_half_period=30.0, contact_threshold=0.1, refractory_period=20,
+    )
+    pm.step(_emg(0), contact_r=1.0, contact_l=0.0)  # call 0: t=0 -> rising edge, first strike, last=0
+    assert pm._last_heel_strike["r"] == 0
+
+    pm.step(_emg(1), contact_r=0.0, contact_l=0.0)  # call 1: t=1 -> falling, no-op
+    pm.step(_emg(2), contact_r=1.0, contact_l=0.0)  # call 2: t=2 -> rising edge, t-last=2 < 20 -> ignored
+    assert pm._last_heel_strike["r"] == 0  # NOT overwritten to 2
+
+    # advance to well past the refractory window (need self._t >= 20 at
+    # processing time -- that's call index 20, i.e. after 18 more calls)
+    for _ in range(18):
+        pm.step(_emg(0), contact_r=1.0, contact_l=0.0)  # stays high, no edges
+    pm.step(_emg(0), contact_r=0.0, contact_l=0.0)  # falling
+    pm.step(_emg(0), contact_r=1.0, contact_l=0.0)  # rising edge, t-last=21 >= 20 -> real strike
+    assert pm._last_heel_strike["r"] == 22
