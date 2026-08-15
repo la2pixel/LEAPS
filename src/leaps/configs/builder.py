@@ -1,15 +1,7 @@
-"""Pure RunSpec -> config.yaml dict builder. No I/O, no side effects.
+"""Pure RunSpec -> config.yaml dict builder
 
-Field values matched against 6 real config.yaml files spanning every
-category (mpo, dep-mpo, emg_lap, no_lap, untrained_lap) -- see
-LEAPS/tests/test_config_gen.py for the golden-file regression tests that
-keep this in sync with those real files.
-
-Canonicalizes env_args to the newer, fuller 10-key form (always including
-self_contact_coeff and run) for every reward variant. Some older
-emg_lap/no_lap "full" configs are missing those two keys -- that's drift
-this generator deliberately does not reproduce; existing files are never
-touched, only new ones are built to the canonical form.
+Match field values against all the controller variations in config.yaml files.
+Also see LEAPS/tests/test_config_gen.py.
 """
 
 from __future__ import annotations
@@ -19,9 +11,7 @@ from pathlib import Path
 from leaps.configs.naming import derive_tags, derive_tonic_name, derive_wandb_group, derive_wandb_name
 from leaps.configs.spec import Category, RewardVariant, RunSpec
 
-# Body-independent reward-coefficient presets, confirmed identical across
-# h0918/h1622 samples for "full", and across onlyvelrew/gaussianvel (the
-# two differ only in which gym id / env class is used, not these numbers).
+# Reward variants
 _ENV_ARGS_BY_VARIANT = {
     RewardVariant.FULL: dict(
         vel_coeff=10,
@@ -34,21 +24,19 @@ _ENV_ARGS_BY_VARIANT = {
     RewardVariant.ONLYVELREW: dict(
         vel_coeff=1, grf_coeff=0, joint_limit_coeff=0, nmuscle_coeff=0, smooth_coeff=0, self_contact_coeff=0
     ),
-    RewardVariant.GAUSSIANVEL: dict(
+    RewardVariant.GAUSSIANVEL: dict( #for now, not needed.
         vel_coeff=1, grf_coeff=0, joint_limit_coeff=0, nmuscle_coeff=0, smooth_coeff=0, self_contact_coeff=0
     ),
 }
 
-# reward_variant -> gym id suffix, matching what's registered in
-# sconegym/sconegym/init_v0.py.
+# Gym id for registration in sconegym/sconegym/init_v0.py.
 _GYM_SUFFIX_BY_VARIANT = {
     RewardVariant.FULL: "",
     RewardVariant.ONLYVELREW: "_onlyVelRew",
     RewardVariant.GAUSSIANVEL: "_gaussianVel",
 }
 
-# Fixed DEP-MPO controller params. kappa is the one field that varies
-# (spec.dep_kappa); the rest are constant across every dep-mpo config seen.
+#DEP+MPO Control Params. kappa is in RunSpec that could be varied.
 _DEP_BLOCK_CONSTANTS = dict(
     bias_rate=0.002,
     buffer_size=200,
@@ -95,7 +83,7 @@ def _decoder_paths(spec: RunSpec) -> tuple[str, str]:
     if not Path(decoder_path).exists() or not Path(norm_path).exists():
         raise FileNotFoundError(
             f"decoder for k={spec.dim_latent}, source={spec.decoder_source.value} does not exist "
-            f"at {decoder_dir}/ -- train it first, or pick a different dim_latent/decoder_source."
+            f"at {decoder_dir}/ - train it first, or pick a different dim_latent/decoder_source."
         )
     return decoder_path, norm_path
 
@@ -147,9 +135,7 @@ def _mpo_args_block(spec: RunSpec) -> dict | None:
 
 
 def build_config(spec: RunSpec) -> dict:
-    """RunSpec -> the exact dict structure yaml.safe_dump writes as
-    config.yaml. Deterministic, no I/O beyond checking decoder paths
-    exist (see _decoder_paths)."""
+    """RunSpec -> same dict structure as yaml.safe_dump writes to config.yaml (see _decoder_paths)."""
     header = "import deprl, gym, sconegym" + (", leaps.envs" if spec.is_lap else "")
 
     cfg: dict = {

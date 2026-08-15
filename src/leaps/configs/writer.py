@@ -1,8 +1,6 @@
 """Writes a built config dict to disk, and queue files for run_queue.sh.
 
-write_config refuses to overwrite an existing config.yaml by default --
-this generator is additive tooling for new runs, not a way to touch any of
-the 217 existing hand-written configs.
+write_config won't overwrite an existing config.yaml by default, this is just for new runs after locking in final approach with a (k,w) pair confirmed
 """
 
 from __future__ import annotations
@@ -16,7 +14,14 @@ from leaps.configs.spec import RunSpec
 
 
 def config_path(spec: RunSpec) -> Path:
-    return Path(spec.baselines_root) / spec.category.value / spec.body / derive_run_name(spec) / "config.yaml"
+    return (
+        Path(spec.baselines_root)
+        / spec.experiment_group.value
+        / spec.category.value
+        / spec.body
+        / derive_run_name(spec)
+        / "config.yaml"
+    )
 
 
 def write_config(spec: RunSpec, cfg: dict, *, overwrite: bool = False) -> Path:
@@ -31,8 +36,7 @@ def write_config(spec: RunSpec, cfg: dict, *, overwrite: bool = False) -> Path:
 def write_queue_file(paths: list[Path], out_path: Path, *, batches: list[list[Path]] | None = None) -> Path:
     """run_queue.sh queue-file format: one config.yaml path per line,
     blank line separates batches (batch mode) or is just ignored (rolling
-    mode). Paths written relative to run_queue.sh's $BASELINES when
-    possible, since that's the convention every existing queue file uses."""
+    mode). Paths written relative to run_queue.sh's $BASELINES when possible"""
     baselines_root = None
     lines: list[str] = []
 
@@ -44,7 +48,7 @@ def write_queue_file(paths: list[Path], out_path: Path, *, batches: list[list[Pa
             return str(p)
 
     if paths:
-        baselines_root = paths[0].parents[3]  # <root>/<category>/<body>/<run_name>/config.yaml
+        baselines_root = paths[0].parents[4]  # <root>/<group>/<category>/<body>/<run_name>/config.yaml
 
     if batches:
         for i, batch in enumerate(batches):

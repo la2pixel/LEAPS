@@ -1,23 +1,10 @@
-"""RunSpec: the single source of truth for a training run's config.yaml.
-
-Replaces hand-copying config.yaml files (217 of them by 2026-08-15, with
-real schema drift as a result -- 61/217 missing wandb.tags, some older
-emg_lap/no_lap "full" configs missing env_args.self_contact_coeff/run
-entirely). A RunSpec is the small set of knobs that actually varies; every
-other field in config.yaml is derived from it in builder.py/naming.py.
-
-category encodes null_prior/untrained_decoder/plain rather than separate
-booleans -- those three are mutually exclusive in every run this project
-has ever done, so an independent-booleans design would let callers build
-combinations that can't actually occur (e.g. null_prior=True and
-untrained_decoder=True on the same run).
+"""The RunSpec dataclass.
 """
 
 from dataclasses import dataclass
 from enum import Enum
 
-# body -> num_acts (muscle count), read off each model's actual SCONE file,
-# not assumed -- confirmed from real config.yaml agent expressions.
+# body
 BODIES = {"h0918": 18, "h1622": 22, "h2190": 90}
 
 
@@ -27,20 +14,26 @@ class Category(str, Enum):
     EMG_LAP = "emg_lap"
     NO_LAP = "no_lap"
     UNTRAINED_LAP = "untrained_lap"
-    # "other" deliberately excluded: bespoke one-off mechanisms
-    # (self_synergy, coactivation_reward, corrnoise, ...), each with its own
-    # tonic.environment expression, not part of this systematic grid.
+    # I have not included other side experiments like (self_synergy, coactivation_reward, corrnoise, ...)
 
 
 LAP_CATEGORIES = frozenset({Category.EMG_LAP, Category.NO_LAP, Category.UNTRAINED_LAP})
 
 
+class ExperimentGroup(str, Enum):
+    # 2026-08-15: baselines_DEPRL reorg -- everything before this date lives
+    # under early_tests/ (both here and in the media results tree), new runs
+    # default to final_experiments/.
+    EARLY_TESTS = "early_tests"
+    FINAL_EXPERIMENTS = "final_experiments"
+
+#for thesis, lets for now report full and onlyvel.
 class RewardVariant(str, Enum):
     FULL = "full"
     ONLYVELREW = "onlyvelrew"
     GAUSSIANVEL = "gaussianvel"
 
-
+#Decoder variants changed after feedback from 14.08 meeting
 class DecoderSource(str, Enum):
     POOLED = "pooled"
     AB06 = "AB06"
@@ -51,21 +44,23 @@ class DecoderSource(str, Enum):
 class RunSpec:
     category: Category
     body: str
+    experiment_group: ExperimentGroup = ExperimentGroup.FINAL_EXPERIMENTS
     reward_variant: RewardVariant = RewardVariant.FULL
     seed: int = 0
 
-    clip: bool = False  # -> env_args.clip_actions (True clips to [0,0.5], False to [0,1.0])
+    clip: bool = False  # -> env_args.clip_actions (True clips to [0,0.5], False to [0,1.0]), we need to test the 3rd option of no clip at all.
     net_size: int = 256  # -> mpo_args.hidden_size iff != 256
+    #try with 512x512 
 
     # LAP-only knobs, ignored for category in (MPO, DEP_MPO).
     dim_latent: int = 6  # "k"
-    mapped_residual_weight: float = 0.5  # "w" -- NOT residual_weight, which stays 1.0
+    mapped_residual_weight: float = 0.5  # "w" -- NOT residual_weight, which stays 1.0 (what????)
     residual_weight: float = 1.0
     mirror_left: bool = True
     decoder_source: DecoderSource = DecoderSource.POOLED
 
     # DEP_MPO-only.
-    dep_kappa: int = 1000  # documented constant (see reference_leaps_related_papers memory)
+    dep_kappa: int = 1000  # there's no kappa i can take for the sconewalk task, the closest is to use k=1986 from the run task but need to confirm
 
     resume: bool = True
 

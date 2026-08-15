@@ -12,23 +12,27 @@ import pytest
 import yaml
 
 from leaps.configs.builder import _decoder_paths, build_config
-from leaps.configs.spec import Category, DecoderSource, RewardVariant, RunSpec
+from leaps.configs.spec import Category, DecoderSource, ExperimentGroup, RewardVariant, RunSpec
 from leaps.configs.writer import config_path, write_config
 
 BASELINES_ROOT = Path("/home/nadinebadie/lalitha/LEAPS/baselines_DEPRL")
 
 # (RunSpec kwargs, path to a real, non-drifted config.yaml it should match)
+# All real files live under early_tests/ (2026-08-15 baselines_DEPRL reorg --
+# everything that existed before that date got grouped there).
+_EARLY = dict(experiment_group=ExperimentGroup.EARLY_TESTS)
 CASES = [
     (
-        dict(category=Category.MPO, body="h2190", reward_variant=RewardVariant.ONLYVELREW, seed=1, clip=True),
-        "mpo/h2190/h2190_clip_net256_onlyvelrew_seed1/config.yaml",
+        dict(_EARLY, category=Category.MPO, body="h2190", reward_variant=RewardVariant.ONLYVELREW, seed=1, clip=True),
+        "early_tests/mpo/h2190/h2190_clip_net256_onlyvelrew_seed1/config.yaml",
     ),
     (
-        dict(category=Category.DEP_MPO, body="h2190", reward_variant=RewardVariant.ONLYVELREW, seed=1, clip=True),
-        "dep-mpo/h2190/h2190_clip_net256_onlyvelrew_seed1/config.yaml",
+        dict(_EARLY, category=Category.DEP_MPO, body="h2190", reward_variant=RewardVariant.ONLYVELREW, seed=1, clip=True),
+        "early_tests/dep-mpo/h2190/h2190_clip_net256_onlyvelrew_seed1/config.yaml",
     ),
     (
         dict(
+            _EARLY,
             category=Category.EMG_LAP,
             body="h0918",
             reward_variant=RewardVariant.ONLYVELREW,
@@ -37,10 +41,11 @@ CASES = [
             dim_latent=11,
             mapped_residual_weight=0.1,
         ),
-        "emg_lap/h0918/h0918_k11_w01_mirror_clip_net256_onlyvelrew_seed0/config.yaml",
+        "early_tests/emg_lap/h0918/h0918_k11_w01_mirror_clip_net256_onlyvelrew_seed0/config.yaml",
     ),
     (
         dict(
+            _EARLY,
             category=Category.EMG_LAP,
             body="h0918",
             reward_variant=RewardVariant.ONLYVELREW,
@@ -50,10 +55,11 @@ CASES = [
             mapped_residual_weight=0.1,
             decoder_source=DecoderSource.AB06,
         ),
-        "emg_lap/h0918/h0918_k11_w01_mirror_noclip_net256_onlyvelrew_AB06_seed0/config.yaml",
+        "early_tests/emg_lap/h0918/h0918_k11_w01_mirror_noclip_net256_onlyvelrew_AB06_seed0/config.yaml",
     ),
     (
         dict(
+            _EARLY,
             category=Category.NO_LAP,
             body="h2190",
             reward_variant=RewardVariant.ONLYVELREW,
@@ -62,10 +68,11 @@ CASES = [
             dim_latent=6,
             mapped_residual_weight=0.5,
         ),
-        "no_lap/h2190/h2190_k6_w05_mirror_clip_net256_onlyvelrew_seed0/config.yaml",
+        "early_tests/no_lap/h2190/h2190_k6_w05_mirror_clip_net256_onlyvelrew_seed0/config.yaml",
     ),
     (
         dict(
+            _EARLY,
             category=Category.UNTRAINED_LAP,
             body="h1622",
             reward_variant=RewardVariant.ONLYVELREW,
@@ -74,7 +81,7 @@ CASES = [
             dim_latent=6,
             mapped_residual_weight=0.1,
         ),
-        "untrained_lap/h1622/h1622_k6_w01_mirror_noclip_net256_onlyvelrew_seed0/config.yaml",
+        "early_tests/untrained_lap/h1622/h1622_k6_w01_mirror_noclip_net256_onlyvelrew_seed0/config.yaml",
     ),
 ]
 
@@ -160,4 +167,7 @@ def test_config_path_layout():
         seed=2,
     )
     path = config_path(spec)
-    assert path == BASELINES_ROOT / "emg_lap" / "h0918" / "h0918_k6_w05_mirror_noclip_net256_onlyvelrew_seed2" / "config.yaml"
+    assert path == (
+        BASELINES_ROOT / "final_experiments" / "emg_lap" / "h0918"
+        / "h0918_k6_w05_mirror_noclip_net256_onlyvelrew_seed2" / "config.yaml"
+    )

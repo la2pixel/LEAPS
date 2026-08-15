@@ -1,16 +1,11 @@
 """Derives run_name/tonic.name/wandb fields from a RunSpec.
-
-Pure string functions, no I/O. Kept separate from builder.py because this
-is the part most likely to keep getting hand-tuned as conventions settle --
-independently testable against the real naming/tagging inconsistency in
-the 217 existing configs without touching the YAML-shape logic.
 """
 
 from leaps.configs.spec import Category, DecoderSource, RewardVariant, RunSpec
 
-# 2026-08-15: locked-in default flipped from w=0.1 to w=0.5. Tag whichever
-# value is NOT the current default, so "untagged" always means "current
-# default" in wandb filters instead of a frozen historical value.
+# Based on the reference paper (Humanoid-v4 variant), we fix omega as w=0.5 default. 
+# Will report results from constraining it to 0.1 based on already run ablations, we wont revert again
+
 _DEFAULT_MAPPED_RESIDUAL_WEIGHT = 0.5
 
 
@@ -23,9 +18,7 @@ def _decoder_suffix(spec: RunSpec) -> str:
 
 
 def derive_run_name(spec: RunSpec) -> str:
-    """Matches the real baseline/LAP directory-naming conventions exactly:
-    baselines omit k/w/mirror (they have no LatentActionPriorWrapper),
-    LAP runs include them. E.g.
+    """ Logging structure Ex.,
     h0918_k11_w01_mirror_noclip_net256_onlyvelrew_AB06_seed0 (LAP) or
     h2190_clip_net256_onlyvelrew_seed1 (baseline)."""
     parts = [spec.body]
@@ -46,10 +39,11 @@ def derive_run_name(spec: RunSpec) -> str:
 
 
 def derive_tonic_name(spec: RunSpec) -> str:
-    """lalitha/<category>/<body>/<run_name> -- the tonic.name convention
-    every launch in this project uses, and what main.py's lalitha/-prefix
-    warning checks for."""
-    return f"lalitha/{spec.category.value}/{spec.body}/{derive_run_name(spec)}"
+    """lalitha/<experiment_group>/<category>/<body>/<run_name> -- must match
+    config_path()'s physical layout exactly, since this is what deprl
+    actually uses to locate/resume a run's results (not the physical path
+    directly). See the 2026-08-15 baselines_DEPRL reorg."""
+    return f"lalitha/{spec.experiment_group.value}/{spec.category.value}/{spec.body}/{derive_run_name(spec)}"
 
 
 def derive_tags(spec: RunSpec) -> list[str]:
@@ -85,8 +79,7 @@ def derive_tags(spec: RunSpec) -> list[str]:
 
 
 def derive_wandb_group(spec: RunSpec) -> str:
-    """run_name with the trailing seed stripped -- groups every seed of the
-    same run together in the wandb UI, the standard wandb grouping idiom."""
+    """run_name without trailing seed(mainly for wandb groupping)"""
     name = derive_run_name(spec)
     suffix = f"_seed{spec.seed}"
     return name[: -len(suffix)] if name.endswith(suffix) else name
