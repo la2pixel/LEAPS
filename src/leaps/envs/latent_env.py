@@ -110,8 +110,9 @@ class LatentActionPriorWrapper(gym.ActionWrapper):
         # same-instant copy). "phase" builds real-content-only ("_r" rows)
         # weights instead and hands them to a PhaseMirror, which fills the
         # "_l" rows itself with a heel-strike-timed lag -- see
-        # phase_mirror.py for why this is a separate stateful class rather
-        # than a EMGToMuscleMapper option.
+        # phase_mirror.py for why this is a separate stateful class, and for
+        # why "phase" here is a bespoke mechanism, not an implementation of
+        # the literature's PHASE method (Abdolhosseini et al. 2019).
         if mirror_mode not in ("static", "phase"):
             raise ValueError(f"mirror_mode must be 'static' or 'phase', got {mirror_mode!r}")
         self.mirror_mode = mirror_mode

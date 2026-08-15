@@ -6,6 +6,21 @@ instead gives the left leg a time-lagged copy of the right leg's own
 recent EMG-derived signal, with the lag tracking an online estimate of the
 current stride's half-period.
 
+NOT the same mechanism as the literature's "PHASE" method (Abdolhosseini,
+Ling, Xie, Peng, van de Panne, "On Learning Symmetric Locomotion", MIG
+2019, Eq. 4 -- the paper Park et al.'s "phase-based mirroring... when the
+model find the heel strike event" sentence traces to). That method mirrors
+the *entire* state, runs it through the *same* policy, then mirrors the
+*entire* action back, for one half of every gait cycle -- it requires a
+full state/action mirror function over every joint. That doesn't have a
+well-defined meaning for our action space's k-dim latent z (an abstract
+AE code, not a spatially-organized joint vector with an obvious left/right
+swap) -- the same kind of dimensional mismatch that blocks DEP from
+applying to this action space (see dep_controller.py's C matrix). This
+class is a bespoke adaptation of the same underlying goal (anti-phase
+left-right coordination) to a residual+latent-prior architecture the
+literature's exact PHASE method doesn't fit, not an implementation of it.
+
 Kept separate from EMGToMuscleMapper on purpose: that class is a pure,
 stateless, construction-time weight-matrix builder with no simulator
 access. This one needs per-step state (an EMG history buffer, heel-strike
