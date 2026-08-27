@@ -292,3 +292,58 @@ nothing is actively training.
 phase result (w01=717.6 worse than null, w05=996.9 recovers to parity)
 didn't surface anything phase uniquely explains beyond "needs more
 residual budget," same story static already tells.
+
+## 2026-08-27 — velocity-conditioned prior: no task benefit on h0918, trained or held-out speeds
+
+vcond experiment (per-episode `target_vel ~ U[0.8,1.5]`, symmetric
+`gaussianVel` reward, speed in obs). **Closed 2026-08-27, null — all jobs
+killed, queue block retired.** Arms: `vcond_real` (speed-conditioned EMG
+decoder) / `vcond_null` (a_hat=0) / `uncond_real` (plain treadmill-pool
+decoder) / `mpo_baseline` (no wrapper).
+
+**Trained-range (deterministic `test/episode_score`), final:** seed0 of
+the three main arms finished at 10M — vcond_real **970.0**, mpo_baseline
+**972.6**, vcond_null **973.9** (4-point spread). Killed partials all past
+convergence: vcond_null_s1 974.2 (6M), uncond_real_s0 973.7 (5.6M),
+uncond_real_s1 929.0 (5.4M, noisy). vcond_real_s1 / mpo_baseline_s1 died
+at 200k. Every run past ~2M sits 966–974. `uncond_real` (the "conditioning
+vs static prior" contrast) is 973.7 — on top of everything. No separation,
+no sample-efficiency gap.
+
+**Held-out-speed eval** (`step_6000000`, 20 eps/speed, obs speed feature
+kept training-normalized; `leaps.scripts.eval_vcond_heldout_speed`):
+
+| target | band | mpo_baseline | vcond_null | vcond_real |
+|---|---|---|---|---|
+| 0.6 | extrap↓ | 907 · vel 0.81 | 827 · vel 1.01 | 873 · vel 0.93 |
+| 0.9 | interp | 977 · err .016 | 961 · err .14 | 970 · err .10 |
+| 1.1 | interp | 975 · err .02 | 980 · err .04 | 985 · err .06 |
+| 1.3 | interp | 971 · err .09 | 978 · err .04 | 987 · err .01 |
+| 1.6 | extrap↑ | 929 · vel 1.36 | 935 · vel 1.39 | 939 · vel 1.38 |
+| 1.8 | extrap↑ | 814 · vel 1.36 | 834 · vel 1.39 | 827 · vel 1.38 |
+
+Interpolation: all three equal (~975). Extrapolation: all three fail
+identically — top speed saturates at ~1.37 m/s regardless of prior, so
+1.6/1.8 undershoot the same; 0.6 missed by all. The EMG prior does not buy
+generalization.
+
+**Why the baseline saturates:** "mpo_baseline" is DEP-MPO (`dep_factory` +
+`TunedMPO` + `AdaptiveEnergyBuffer`) — already a strong domain exploration
+prior. Reward is trivially saturable (vel_coeff=1, every other coeff 0;
+no effort/style/smoothness term), so coordinated activation is not
+rewarded. h0918 + a 1-parameter gait family is easy. No struggle → no room
+for the inductive bias.
+
+**What the prior still does:** `vcond_real` activations stay smooth and
+low-amplitude (mean ~0.07, never saturate) vs `vcond_null` / `mpo_baseline`
+bang-bang (mean ~0.35, max 1.0). Physiological-plausibility difference is
+real and holds; it just doesn't show up in return.
+
+**Verdict:** kill-switch met on both metrics; experiment retired (not
+extended to h1622/h2190 — that's a new experiment against the spine plan,
+3 weeks from deadline). Kept as a negative finding supporting the reframe:
+LAP's own suggested extension, tested properly, does not separate from null
+on muscle-actuated control. Paper stands on results 1–3. Data in
+`data.json` key `vcond_h0918`; raw in `results/vcond_heldout/`; harness
+`leaps.scripts.eval_vcond_heldout_speed`. Findings-log chart panel TODO
+(low priority — it's a null).
