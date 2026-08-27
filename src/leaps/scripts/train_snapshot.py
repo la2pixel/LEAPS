@@ -23,20 +23,20 @@ This is the first step of the LEAPS pipeline:
 
     # Train on all conditions (recommended for general prior)
     python -m leaps.scripts.train_snapshot \\
-        --data /fast/lsivakumar/data/processed/emg_activations_v2.h5 \\
+        --data $LEAPS_EMG_H5 \\
         --output-dir experiments/hausdorfer_ae \\
         --epochs 300 --batch-size 4096 --wandb --wandb-project leaps
 
     # Train on treadmill 1.25 m/s only (RL-target condition)
     python -m leaps.scripts.train_snapshot \\
-        --data /fast/lsivakumar/data/processed/emg_activations_v2.h5 \\
+        --data $LEAPS_EMG_H5 \\
         --modes treadmill --conditions 1.25 \\
         --output-dir experiments/hausdorfer_ae_1.25 \\
         --epochs 300 --batch-size 4096
 
     # Quick sanity check (CPU, 5 epochs)
     python -m leaps.scripts.train_snapshot \\
-        --data /fast/lsivakumar/data/processed/emg_activations_v2.h5 \\
+        --data $LEAPS_EMG_H5 \\
         --epochs 5 --batch-size 512
 """
 
@@ -51,7 +51,7 @@ import torch
 
 from leaps.data.metadata import LEAPS_H5_PATH
 from leaps.data.stride_dataset import load_strides, stride_train_val_split
-from leaps.models.stride_models import HausdorferAE
+from leaps.models.old_code import HausdorferAE
 
 
 # ── Argument parsing ──────────────────────────────────────────────────────────
@@ -65,7 +65,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
     g = p.add_argument_group("data")
     g.add_argument("--data", default=LEAPS_H5_PATH,
-                   help="HDF5 file from leaps-preprocess (emg_activations_v2.h5).")
+                   help="HDF5 file from leaps preprocess (emg_activations_v2.h5).")
     g.add_argument("--subjects", nargs="+", default=None,
                    help="Subjects to include (default: all AB* in file).")
     g.add_argument("--modes", nargs="+", default=None,
@@ -257,10 +257,11 @@ def main(argv: list[str] | None = None) -> None:
     if args.wandb:
         try:
             import wandb as _wandb
-            run_name = args.wandb_run_name or f"hausdorfer_d{args.latent_dim}_{time.strftime('%m%d_%H%M')}"
+            run_name = args.wandb_run_name or f"hausdorfer_ae_d{args.latent_dim}"
             wb_run = _wandb.init(
                 project=args.wandb_project,
                 entity=args.wandb_entity,
+                group="hausdorfer_ae",
                 name=run_name,
                 config={
                     "model": "HausdorferAE",

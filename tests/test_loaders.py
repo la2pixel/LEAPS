@@ -1,6 +1,6 @@
 """Tests for leaps.data.loaders.
 
-These tests run against the real Camargo dataset at /fast/lsivakumar/datasets/camargo.
+These tests run against the real Camargo dataset at $CAMARGO_DATA.
 Skip them with ``pytest -m "not slow"`` if the data isn't available.
 """
 
@@ -19,8 +19,8 @@ from leaps.data.loaders import (
     parse_camargo,
 )
 
-DATA_ROOT = "/fast/lsivakumar/datasets/camargo"
-HAS_DATA = os.path.isdir(DATA_ROOT)
+DATA_ROOT = os.environ.get("CAMARGO_DATA", "")
+HAS_DATA = bool(DATA_ROOT) and os.path.isdir(DATA_ROOT)
 needs_data = pytest.mark.skipif(not HAS_DATA, reason="Camargo dataset not available")
 
 

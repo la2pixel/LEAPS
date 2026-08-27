@@ -1,90 +1,17 @@
-"""Train stride-level EMG representation models and sweep over hyperparameters.
+"""Train stride-level EMG representation models.
 
-Each model compresses a full 101-point gait cycle (101, 11) into a latent vector
-of size `latent_dim`. The frozen decoder is then used in RL as the action prior:
-the policy outputs z, the decoder produces 101-step muscle activation profiles.
+Compresses full gait cycles (101, 11) to a latent vector; the frozen decoder
+is used in RL as the action prior.
 
-## Focus: StrideFlatAE and StrideFlatVAE
-
-Two model families, one clear question each:
-
-  StrideFlatAE  — deterministic MLP. Current best: d=8, R²=0.634.
-                   Question: is d=8 the right latent size, or does d=10 give
-                   meaningfully better R² (more muscle pattern capacity)?
-
-  StrideFlatVAE — same MLP + KL toward N(0,I).
-                   Question: does a smooth, well-covered latent help RL even if
-                   R² is slightly lower than FlatAE? (The PPO policy initialises
-                   near z=0; with FlatVAE, z~N(0,I) always decodes to a valid stride.)
-                   Key fix: free_bits=0.5 prevents posterior collapse (was the bug
-                   at beta=0.01 in the previous run — all dims collapsed to sigma≈0).
-
-## Systematic sweep design
-
-### Sweep 1 — FlatAE latent dim (bracket the current best d=8)
-    Models:      StrideFlatAE
-    Latent dims: 6, 8, 10
-    → 3 runs. d=6: smaller RL action space (easier to learn). d=10: does extra
-      capacity improve R² enough to justify a harder RL problem?
-    We already have d=4,6,8 results. Run d=10 as the only new FlatAE run.
-
-### Sweep 2 — FlatVAE beta (KL strength, with collapse prevention)
-    Models:      StrideFlatVAE
-    Latent dim:  8 (match best FlatAE for direct comparison)
-    Beta:        0.001, 0.01, 0.05
-    free_bits:   0.5 (fixed — prevents collapse, do not sweep)
-    → 3 runs. beta=0.001 ≈ soft noise, beta=0.05 = strong smoothness pressure.
-    Primary signal: does train_kl per dim stay > free_bits (0.5 nats)?
-    If it does, the latent is active. If it collapses again, raise free_bits.
-
-### Decision rule (RL-specific, not just R²)
-    1. Discard any run where any latent dim std < 0.1 (collapsed → wasted policy dim)
-    2. Among survivors, plot R² vs beta. Pick the highest beta where R² > 0.55
-       (R² lower than this means the decoder can't reliably reconstruct gait patterns;
-       the PPO reward signal from WalkingReward will be too noisy to learn from).
-    3. If FlatVAE at the chosen beta has R² within 0.05 of FlatAE d=8:
-       prefer FlatVAE (smoother latent → faster RL exploration).
-       Otherwise use FlatAE d=8 (reconstruction matters more than smoothness here).
-
-## Evaluation metrics
-
-Primary (val set, subject-held-out):
-  - val_r2:           fraction of variance explained
-  - per_muscle_r2:    R² per EMG channel — gastrocnemius and tibialis are hardest
-
-Collapse diagnostics (critical for FlatVAE):
-  - train_kl:         mean KL per batch. Should stabilise at beta×free_bits×latent_dim
-                      = 0.01×0.5×8 = 0.04 for beta=0.01. If near 0, collapsed.
-  - latent_std_min:   minimum std across dims. < 0.1 = a dim is dead.
-
-## Usage
-
-    # Sweep 1: FlatAE d=10 (the one new run we need)
-    python -m leaps.scripts.train_strides \\
-        --data /fast/lsivakumar/data/processed/emg_activations_v2.h5 \\
-        --models StrideFlatAE --latent-dims 10 \\
-        --epochs 200 --batch-size 256 \\
-        --output-dir experiments/flatae_d10 --wandb --wandb-project leaps
-
-    # Sweep 2: FlatVAE beta (3 runs, free_bits fixed at 0.5)
-    python -m leaps.scripts.train_strides \\
-        --data /fast/lsivakumar/data/processed/emg_activations_v2.h5 \\
-        --models StrideFlatVAE --latent-dims 8 \\
-        --beta 0.001 --free-bits 0.5 \\
-        --epochs 200 --batch-size 256 \\
-        --output-dir experiments/flatvae_sweep --wandb --wandb-project leaps
-    # repeat with --beta 0.01 and --beta 0.05
-
-    # Quick sanity check
-    python -m leaps.scripts.train_strides \\
-        --data /fast/lsivakumar/data/processed/emg_activations_v2.h5 \\
-        --models StrideFlatVAE --latent-dims 8 --beta 0.01 --free-bits 0.5 --epochs 5
+Usage:
+    leaps train-strides --models StridePCA StrideNMF --latent-dims 4 6 8 10
+    leaps train-strides --models StrideFlatAE --latent-dims 4 6 8 10 --wandb
+    leaps train-strides --models StrideFlatVAE --latent-dims 8 --beta 0.01 --wandb
 """
 
 import argparse
 import json
 import random
-import time
 from pathlib import Path
 
 import numpy as np
@@ -109,7 +36,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     # Data
     g = p.add_argument_group("data")
     g.add_argument("--data", default=LEAPS_H5_PATH,
-                   help="HDF5 file from leaps-preprocess (emg_activations_v2.h5).")
+                   help="HDF5 file from leaps preprocess (emg_activations_v2.h5).")
     g.add_argument("--subjects", nargs="+", default=None,
                    help="Subjects to include (default: all AB* in file).")
     g.add_argument("--modes", nargs="+", default=None,
@@ -141,18 +68,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     # Model hyperparameters (fixed per run — do not sweep until you have a baseline)
     g = p.add_argument_group("model hyperparameters")
     g.add_argument("--beta", type=float, default=0.01,
-                   help="StrideFlatVAE/StrideVAE KL weight. Sweep {0.001, 0.01, 0.05}.")
+                   help="StrideFlatVAE KL weight. Sweep {0.001, 0.01, 0.05}.")
     g.add_argument("--free-bits", type=float, default=0.5,
                    help="StrideFlatVAE minimum KL per latent dim (nats). Prevents posterior "
                         "collapse. Keep fixed at 0.5 — only sweep beta.")
-    g.add_argument("--mmd-weight", type=float, default=10.0,
-                   help="StrideWAE MMD weight. 10 keeps MMD contribution ~= MSE.")
     g.add_argument("--lnorm-weight", type=float, default=0.01,
-                   help="Soft latent norm penalty weight (all neural models). Keeps z near [-1.2, 1.2].")
-    g.add_argument("--mask-ratio", type=float, default=0.3,
-                   help="StrideMAE fraction of timepoints to mask per stride.")
-    g.add_argument("--cnmf-alpha", type=float, default=0.1,
-                   help="StrideCNMF L2 penalty on activation coefficients.")
+                   help="Soft latent norm penalty weight (FlatAE/FlatVAE). Keeps z near [-1.2, 1.2].")
 
     # Output
     g = p.add_argument_group("output")
@@ -304,14 +225,21 @@ def main(argv: list[str] | None = None) -> None:
         except ImportError:
             print("WARNING: wandb not installed. Logging to stdout only.")
 
-    group_name = args.wandb_group or f"stride_{time.strftime('%Y%m%d_%H%M')}"
+    # Derive a stable group name from the model(s) being run so related runs cluster together.
+    # Single-model runs: StrideFlatAE → "flatae", StrideFlatVAE → "flatvae", etc.
+    # Multi-model sweeps: "stride_sweep"
+    if args.wandb_group:
+        group_name = args.wandb_group
+    elif len(args.models) == 1:
+        group_name = args.models[0].lower().replace("stride", "")
+    else:
+        group_name = "stride_sweep"
     shared_config = {
         "n_strides": n_strides, "n_train": x_train.shape[0], "n_val": x_val.shape[0],
         "val_subjects": val_subjects, "stride_len": stride_len, "n_channels": n_channels,
         "modes_filter": args.modes, "conditions_filter": args.conditions,
         "epochs": args.epochs, "batch_size": args.batch_size, "lr": args.lr,
-        "seed": args.seed, "beta": args.beta, "mmd_weight": args.mmd_weight,
-        "lnorm_weight": args.lnorm_weight,
+        "seed": args.seed, "beta": args.beta, "lnorm_weight": args.lnorm_weight,
     }
 
     # ── Sweep ─────────────────────────────────────────────────────────────────
@@ -325,23 +253,17 @@ def main(argv: list[str] | None = None) -> None:
 
     for run_idx, model_name in enumerate(args.models):
         for latent_dim in args.latent_dims:
-            run_name = f"{model_name}_d{latent_dim}"
+            if model_name == "StrideFlatVAE":
+                run_name = f"{model_name}_d{latent_dim}_b{args.beta:.3f}"
+            else:
+                run_name = f"{model_name}_d{latent_dim}"
             print(f"\n[{len(results)+1}/{n_runs}] {run_name}")
             print("-" * 50)
 
-            # Build model with explicit hyperparameters — no hidden defaults
             extra: dict = {}
-            if model_name in ("StrideVAE", "StrideFlatVAE"):
-                extra["beta"] = args.beta
             if model_name == "StrideFlatVAE":
+                extra["beta"] = args.beta
                 extra["free_bits"] = args.free_bits
-            if model_name == "StrideWAE":
-                extra["mmd_weight"] = args.mmd_weight
-            if model_name == "StrideMAE":
-                extra["mask_ratio"] = args.mask_ratio
-            if model_name == "StrideCNMF":
-                extra["alpha"] = args.cnmf_alpha
-            # lnorm_weight applies to all neural models
             if model_name in STRIDE_PYTORCH_MODELS:
                 extra["lnorm_weight"] = args.lnorm_weight
 

@@ -10,12 +10,12 @@ Reads training results (results.json) and checkpoints to produce:
 Usage:
     # After running train_strides.py with multiple latent dims:
     python -m leaps.scripts.plot_reconstructions \
-        --data /fast/lsivakumar/data/processed/emg_activations.h5 \
+        --data $LEAPS_EMG_H5 \
         --experiment-dir experiments/stride_sweep
 
     # Single latent dim, specific models:
     python -m leaps.scripts.plot_reconstructions \
-        --data /fast/lsivakumar/data/processed/emg_activations.h5 \
+        --data $LEAPS_EMG_H5 \
         --experiment-dir experiments/stride_sweep \
         --models StridePCA StrideNMF StrideCNMF StrideFlatAE \
         --latent-dims 9

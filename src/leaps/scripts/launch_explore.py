@@ -46,10 +46,12 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--w", "--mapped-residual-weight", dest="w", nargs="+", default=[0.5], type=float)
     p.add_argument("--residual-weight", nargs="+", default=[1.0], type=float)
     p.add_argument("--mirror", nargs="+", default=[True], type=_bool)
+    p.add_argument("--mirror-mode", nargs="+", default=["static"], choices=["static"])
     p.add_argument(
         "--decoder-source", nargs="+", default=["pooled"], choices=[s.value for s in DecoderSource]
     )
-    p.add_argument("--dep-kappa", nargs="+", default=[1000], type=int)
+    p.add_argument("--dep-kappa", nargs="+", default=[1000], type=int)  # verified against authors' shipped configs, see RunSpec.dep_kappa
+    p.add_argument("--net-size", nargs="+", default=[256], type=int)
     p.add_argument("--resume", type=_bool, default=True)
     p.add_argument("--queue-out", type=Path, default=None)
     p.add_argument("--rolling", type=int, default=None)
@@ -72,8 +74,10 @@ def main() -> None:
         args.w,
         args.residual_weight,
         args.mirror,
+        args.mirror_mode,
         args.decoder_source,
         args.dep_kappa,
+        args.net_size,
     )
     specs = [
         RunSpec(
@@ -86,11 +90,13 @@ def main() -> None:
             mapped_residual_weight=w,
             residual_weight=residual_weight,
             mirror_left=mirror,
+            mirror_mode=mirror_mode,
             decoder_source=DecoderSource(decoder_source),
             dep_kappa=dep_kappa,
+            net_size=net_size,
             resume=args.resume,
         )
-        for category, body, reward_variant, seed, clip, k, w, residual_weight, mirror, decoder_source, dep_kappa in combos
+        for category, body, reward_variant, seed, clip, k, w, residual_weight, mirror, mirror_mode, decoder_source, dep_kappa, net_size in combos
     ]
 
     generate_and_queue(

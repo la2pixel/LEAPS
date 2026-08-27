@@ -4,18 +4,16 @@ Contains per-subject demographics, experiment protocol parameters, sensor
 specifications, and signal processing constants.
 """
 
+from __future__ import annotations
+
 import os
 from dataclasses import dataclass
 
 # Server-local paths — override by setting environment variables:
-#   LEAPS_RAW_DATA       path to raw Camargo dataset root
-#   LEAPS_PROCESSED_DATA path to processed emg_activations_v2.h5
-CAMARGO_DATA_ROOT: str = os.environ.get(
-    "LEAPS_RAW_DATA", "/fast/lsivakumar/datasets/camargo"
-)
-LEAPS_H5_PATH: str = os.environ.get(
-    "LEAPS_PROCESSED_DATA", "/fast/lsivakumar/data/processed/emg_activations_v2.h5"
-)
+#   CAMARGO_DATA   path to raw Camargo dataset root
+#   LEAPS_EMG_H5   path to processed emg_activations_v2.h5
+CAMARGO_DATA_ROOT: str = os.environ.get("CAMARGO_DATA", "")
+LEAPS_H5_PATH: str = os.environ.get("LEAPS_EMG_H5", "")
 
 # demographics
 

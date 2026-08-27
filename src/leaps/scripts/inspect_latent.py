@@ -13,7 +13,7 @@ Sampling from N(0,1) would produce mostly out-of-distribution z values.
 
 Usage:
     python -m leaps.scripts.inspect_latent \\
-        --data /fast/lsivakumar/data/processed/emg_activations_v2.h5 \\
+        --data $LEAPS_EMG_H5 \\
         --checkpoint experiments/stride_flatvae/checkpoints/StrideFlatAE_d8.pt \\
         --model StrideFlatAE --latent-dim 8 \\
         --output-dir experiments/stride_flatvae/latent_inspection

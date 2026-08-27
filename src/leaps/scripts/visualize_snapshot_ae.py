@@ -10,7 +10,7 @@ Run locally (Windows) after copying checkpoint from cluster, or on cluster with 
 Usage:
     python -m leaps.scripts.visualize_snapshot_ae \\
         --checkpoint experiments/hausdorfer_ae/hausdorfer_ae.pt \\
-        --data /fast/lsivakumar/data/processed/emg_activations_v2.h5 \\
+        --data $LEAPS_EMG_H5 \\
         --output-dir experiments/hausdorfer_ae/plots
 """
 
@@ -24,7 +24,7 @@ import numpy as np
 
 from leaps.data.stride_dataset import load_strides, stride_train_val_split
 from leaps.envs.emg_mapping import MODEL_ACTUATORS
-from leaps.models.stride_models import HausdorferAE
+from leaps.models.old_code import HausdorferAE
 from leaps.scripts.train_snapshot import strides_to_snapshots
 
 

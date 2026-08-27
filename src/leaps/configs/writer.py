@@ -10,18 +10,19 @@ from pathlib import Path
 import yaml
 
 from leaps.configs.naming import derive_run_name
-from leaps.configs.spec import RunSpec
+from leaps.configs.spec import ExperimentGroup, RunSpec
 
 
 def config_path(spec: RunSpec) -> Path:
-    return (
-        Path(spec.baselines_root)
-        / spec.experiment_group.value
-        / spec.category.value
-        / spec.body
-        / derive_run_name(spec)
-        / "config.yaml"
-    )
+    """Physical layout -- must match naming.derive_tonic_name() exactly,
+    see that function's docstring. Non-default-recipe final_experiments
+    runs (net512, clip=True, ...) land under an extra /other/ segment,
+    2026-08-19, so the main tree stays net256/noclip-only by construction
+    and its names never need to spell that out."""
+    root = Path(spec.baselines_root) / spec.experiment_group.value
+    if spec.experiment_group == ExperimentGroup.FINAL_EXPERIMENTS and not spec.is_default_recipe:
+        root = root / "other"
+    return root / spec.category.value / spec.body / derive_run_name(spec) / "config.yaml"
 
 
 def write_config(spec: RunSpec, cfg: dict, *, overwrite: bool = False) -> Path:
@@ -31,6 +32,20 @@ def write_config(spec: RunSpec, cfg: dict, *, overwrite: bool = False) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(yaml.safe_dump(cfg, sort_keys=False, default_flow_style=False))
     return path
+
+
+_GROUP_DIR_NAMES = {g.value for g in ExperimentGroup}
+
+
+def _infer_baselines_root(path: Path) -> Path | None:
+    """Walk up from a config.yaml to the <group> dir (final_experiments/
+    early_tests) and return its parent. Depth-independent on purpose --
+    2026-08-19's /other/ segment for non-default-recipe final_experiments
+    runs makes a fixed parents[N] index wrong for exactly those paths."""
+    for parent in path.parents:
+        if parent.name in _GROUP_DIR_NAMES:
+            return parent.parent
+    return None
 
 
 def write_queue_file(paths: list[Path], out_path: Path, *, batches: list[list[Path]] | None = None) -> Path:
@@ -48,7 +63,7 @@ def write_queue_file(paths: list[Path], out_path: Path, *, batches: list[list[Pa
             return str(p)
 
     if paths:
-        baselines_root = paths[0].parents[4]  # <root>/<group>/<category>/<body>/<run_name>/config.yaml
+        baselines_root = _infer_baselines_root(paths[0])
 
     if batches:
         for i, batch in enumerate(batches):

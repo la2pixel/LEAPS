@@ -1,4 +1,5 @@
 """EMG preprocessing EDA — visual walkthrough of the full pipeline.
+THIS SHOULD BE A NOTEBOOK
 
 Generates 6 figures saved as PNGs:
   fig1_pipeline.png       — filter chain step-by-step for one trial (one muscle)
@@ -13,10 +14,10 @@ Figures 3–6 require the processed HDF5 (--h5).
 
 Usage:
     python -m leaps.scripts.eda_emg \\
-        --data-root /fast/lsivakumar/datasets/camargo \\
-        --h5 /fast/lsivakumar/data/processed/emg_activations_v2.h5 \\
+        --data-root $CAMARGO_DATA \\
+        --h5 $LEAPS_EMG_H5 \\
         --subject AB09 \\
-        --output-dir /fast/lsivakumar/LEAPS/outputs/eda
+        --output-dir outputs/eda
 """
 
 import argparse
@@ -259,7 +260,7 @@ def fig_normalization(h5_path: Path, subjects: list[str], out_path: Path,
         for subj in subjects:
             if subj not in hf:
                 continue
-            s_strides = hf[subj]["strides"][:]      # (n, 101, 11) already normalized+clipped
+            s_strides = hf[subj]["strides"][:]      # (n, 101, 11) already normalized
             s_speeds = hf[subj]["speeds"][:]
             s_min = hf[subj]["min_vals"][:]
             s_max = hf[subj]["max_vals"][:]

@@ -1,93 +1,72 @@
-"""Custom terminal state handler for the 2D sagittal-plane gait10dof18musc model.
+"""Terminal-state  conditions for muscle-actuated locomotion.
 
-The default HeightBasedTerminalStateHandler assumes a free joint (reads qpos[2] for z-height).
-Our model uses separate slide joints (pelvis_tx, pelvis_ty, pelvis_tilt), so we check
-pelvis_ty directly for the height-based terminal condition.
+Gaitgym get_done() method
 """
 
-from types import ModuleType
-from typing import Any, Dict, Tuple, Union
-
-import jax.numpy as jnp
-import numpy as np
-from mujoco import MjData, MjModel
-from mujoco.mjx import Data, Model
-
-from loco_mujoco.core.terminal_state_handler.base import TerminalStateHandler
-from loco_mujoco.core.utils import mj_jntname2qposid
-from loco_mujoco.core.utils.backend import assert_backend_is_supported
+# Same candidate list as sconegym.gaitgym.SconeGym._find_head_body(). The
+# search doesn't stop at the first match -- it keeps the *last* body in
+# model.bodies() whose name is in this list. H0918 only has "torso", but
+# H1622 and H2190 have both "torso" and "head", so on those two models this
+# ends up picking "head" (it's defined after "torso"). Replicated as-is.
+HEAD_BODY_NAMES = ("torso", "head", "lumbar")
 
 
-class NoTerminalStateHandler(TerminalStateHandler):
-    """Never terminates — episode ends only at horizon. Use during diagnostics."""
-
-    def reset(self, env, model, data, carry, backend):
-        return data, carry
-
-    def is_absorbing(self, env, obs, info, data, carry):
-        return False, carry
-
-    def mjx_is_absorbing(self, env, obs, info, data, carry):
-        return jnp.bool_(False), carry
+def find_head_body(model):
+    """Return the head/torso body sconegym uses for its height check."""
+    head_body = None
+    for b in model.bodies():
+        if b.name() in HEAD_BODY_NAMES:
+            head_body = b
+    if head_body is None:
+        raise ValueError(f"No body named any of {HEAD_BODY_NAMES} in model")
+    return head_body
 
 
-class HeightJointTerminalStateHandler(TerminalStateHandler):
-    """Terminal state handler that checks pelvis_ty joint for height-based termination.
+class NoTerminal:
+    """Never ends an episode early -- fixed-length rollouts only."""
 
-    Used for 2D sagittal-plane models where the root is defined by separate
-    slide/hinge joints rather than a free joint.
+    def reset(self) -> None:
+        pass
+
+    def __call__(self, model) -> bool:
+        return False
+
+
+class HeightTerminal:
+    """Falls when COM or head/torso height drops below a threshold.
+
+    Same condition as sconegym.gaitgym.GaitGym._get_done(): com_pos().y <
+    min_com_height, or the head/torso body's com_pos().y < min_head_height.
     """
 
-    def __init__(self, env: Any, **handler_config: Dict[str, Any]):
-        super().__init__(env, **handler_config)
-        self.root_height_range = self._info_props["root_height_healthy_range"]
-        self.pelvis_ty_qpos_id = int(
-            np.array(mj_jntname2qposid("pelvis_ty", env._model)).flat[0]
-        )
-
-    def reset(
+    def __init__(
         self,
-        env: Any,
-        model: Union[MjModel, Model],
-        data: Union[MjData, Data],
-        carry: Any,
-        backend: ModuleType,
-    ) -> Tuple[Union[MjData, Data], Any]:
-        assert_backend_is_supported(backend)
-        return data, carry
+        min_com_height: float = 0.5,
+        min_head_height: float = 0.9,
+        fall_recovery_time: float = 0.0,
+    ):
+        self.min_com_height = min_com_height
+        self.min_head_height = min_head_height
+        self.fall_recovery_time = fall_recovery_time
+        self._head_body = None
+        self._fall_time = -1.0
 
-    def is_absorbing(
-        self,
-        env: Any,
-        obs: np.ndarray,
-        info: Dict[str, Any],
-        data: MjData,
-        carry: Any,
-    ) -> Union[bool, Any]:
-        return self._is_absorbing_compat(env, obs, info, data, carry, backend=np)
+    def reset(self) -> None:
+        """Call on episode reset -- clears the cached head body and fall timer."""
+        self._head_body = None
+        self._fall_time = -1.0
 
-    def mjx_is_absorbing(
-        self,
-        env: Any,
-        obs: jnp.ndarray,
-        info: Dict[str, Any],
-        data: Data,
-        carry: Any,
-    ) -> Union[bool, Any]:
-        return self._is_absorbing_compat(env, obs, info, data, carry, backend=jnp)
+    def __call__(self, model) -> bool:
+        if self._head_body is None:
+            self._head_body = find_head_body(model)
 
-    def _is_absorbing_compat(
-        self,
-        env: Any,
-        obs: Union[np.ndarray, jnp.ndarray],
-        info: Dict[str, Any],
-        data: Union[MjData, Data],
-        carry: Any,
-        backend: ModuleType,
-    ) -> Union[bool, Any]:
-        pelvis_height = data.qpos[self.pelvis_ty_qpos_id]
-        height_cond = backend.logical_or(
-            backend.less(pelvis_height, self.root_height_range[0]),
-            backend.greater(pelvis_height, self.root_height_range[1]),
-        )
-        return height_cond, carry
+        fall = model.com_pos().y < self.min_com_height
+        fall = fall or self._head_body.com_pos().y < self.min_head_height
+
+        t = model.time()
+        if fall:
+            if self._fall_time < 0:
+                self._fall_time = t
+            return (t - self._fall_time) >= self.fall_recovery_time
+        self._fall_time = -1.0
+        return False

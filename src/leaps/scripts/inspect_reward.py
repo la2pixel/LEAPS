@@ -5,7 +5,7 @@ to verify the reward doesn't incentivize bad actions.
 
 Usage:
     python -m leaps.scripts.inspect_reward
-    python -m leaps.scripts.inspect_reward --out /fast/lsivakumar/LEAPS/plots/reward/
+    python -m leaps.scripts.inspect_reward --out plots/reward/
 """
 
 import argparse
@@ -155,7 +155,7 @@ def plot_all(out_dir: Path):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--out", default="/fast/lsivakumar/LEAPS/plots/reward/")
+    parser.add_argument("--out", default="plots/reward/")
     args = parser.parse_args()
     plot_all(Path(args.out))
     print(f"\nAll plots saved to: {args.out}")

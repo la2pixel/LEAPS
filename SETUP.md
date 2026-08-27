@@ -26,8 +26,8 @@ renders/old/        Two PPO videos from old runs
 Add to `~/.bashrc` (or equivalent) on the new server:
 
 ```bash
-export LEAPS_RAW_DATA=/path/to/camargo/dataset     # raw .mat files
-export LEAPS_PROCESSED_DATA=/path/to/emg_activations_v2.h5
+export CAMARGO_DATA=/path/to/camargo/dataset     # raw .mat files
+export LEAPS_EMG_H5=/path/to/emg_activations_v2.h5
 ```
 
 Run `source ~/.bashrc` after.
@@ -96,10 +96,10 @@ Confirm:
 
 ```bash
 # Snapshot AE (spatial prior — Hausdörfer-exact, trains in minutes)
-leaps-train-snapshot --epochs 300 --wandb
+leaps train-snapshot --epochs 300 --wandb
 
 # Stride AE (temporal prior — LEAPS contribution)
-leaps-train-strides --models StrideFlatAE --latent-dims 8 --epochs 200 --wandb
+leaps train-strides --models StrideFlatAE --latent-dims 8 --epochs 200 --wandb
 ```
 
 Checkpoints saved to `experiments/ae_priors/` by default.
@@ -126,11 +126,11 @@ Key things to figure out first:
 ## Commands
 
 ```bash
-leaps-preprocess      # rebuild HDF5 from raw Camargo .mat files (if needed)
-leaps-train-snapshot  # train HausdorferAE (spatial prior)
-leaps-train-strides   # train StrideFlatAE / sweep (temporal prior + baselines)
-leaps-visualize       # EMG pipeline diagnostic plots (needs LEAPS_RAW_DATA)
-leaps-visualize-snapshot  # AE reconstruction quality plots (needs trained checkpoint)
+leaps preprocess      # rebuild HDF5 from raw Camargo .mat files (if needed)
+leaps train-snapshot  # train HausdorferAE (spatial prior)
+leaps train-strides   # train StrideFlatAE / sweep (temporal prior + baselines)
+leaps visualize       # EMG pipeline diagnostic plots (needs CAMARGO_DATA)
+leaps visualize-snapshot  # AE reconstruction quality plots (needs trained checkpoint)
 ```
 
 ---

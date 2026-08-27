@@ -1,33 +1,12 @@
-"""Action representation models for EMG dimensionality reduction."""
+"""Action-representation model scripts (synergy AEs, rollout extractors).
 
-from leaps.models.base import EMGModel
-from leaps.models.sklearn_models import NMFModel, PCAModel
-from leaps.models.stride_models import (
-    HausdorferAE,
-    StrideAutoencoder,
-    StrideFlatAE,
-    StrideFlatVAE,
-    StrideMaskedAutoencoder,
-    StrideNMFModel,
-    StridePCAModel,
-    StrideVAE,
-    StrideWAE_MMD,
-)
+The runnable scripts here (train_speed_decoder.py, train_phase_vae.py,
+get_synergies.py, extract_rollout_*.py) are `python -m leaps.models.<name>`
+entry points and pull what they need directly from leaps.synergy_common /
+leaps.data.
 
-__all__ = [
-    "EMGModel",
-    # Snapshot-level: Hausdörfer-exact latent action prior
-    "HausdorferAE",
-    # Snapshot-level baselines
-    "PCAModel",
-    "NMFModel",
-    # Stride-level
-    "StridePCAModel",
-    "StrideNMFModel",
-    "StrideAutoencoder",
-    "StrideVAE",
-    "StrideWAE_MMD",
-    "StrideFlatAE",
-    "StrideFlatVAE",
-    "StrideMaskedAutoencoder",
-]
+Was re-exporting ActionModel/HausdorferAE/... from old_code.py "while models/
+is redesigned"; that re-export broke on a missing leaps.evaluation import and
+nothing consumed it (grep: no `from leaps.models import` anywhere), so it was
+dropped 2026-08-27. old_code.py is still on disk for reference.
+"""

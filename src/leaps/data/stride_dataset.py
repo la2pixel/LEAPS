@@ -1,9 +1,6 @@
-"""StrideDataset utilities for loading (n_strides, 101, 11) sequences.
+"""StrideDataset utilities for loading (n_strides, 101, 11) sequences."""
 
-Explained here: https://www.notion.so/StrideDataset-334ab61e5b1e80199b76eebe42697bbf
-HDF5 file structure: https://www.notion.so/HDF5-file-format-334ab61e5b1e8036be2dda21c06e7d31
-
-"""
+from __future__ import annotations
 
 import h5py
 import numpy as np
@@ -34,7 +31,7 @@ def load_strides(
     """Load stride sequences from HDF5 with option to filter by mode.
 
     Args:
-        path:       Path to HDF5 file (output of leaps-preprocess).
+        path:       Path to HDF5 file (output of leaps preprocess).
         subjects:   Subject IDs to load (default: all AB* groups in file).
         modes:      Filter to specific modes, e.g. ["treadmill", "levelground"].
                     Default: all modes.
@@ -121,13 +118,10 @@ def load_strides(
 def stride_train_val_split(
     strides: np.ndarray,
     metadata: dict[str, np.ndarray] | None = None,
-    val_fraction: float = 0.1,
+    val_fraction: float = 0.2,  #so like 4 subjects
     seed: int = 42,
 ) -> tuple:
     """Split stride data into train/val at the subject level.
-
-    Holds out entire subjects for validation to prevent data leakage.
-    If metadata is not provided, falls back to random stride-level split.
 
     Args:
         strides: (n_strides, 101, 11) array.
@@ -136,10 +130,8 @@ def stride_train_val_split(
         seed: Random seed.
 
     Returns:
-        If metadata is None:
-            (strides_train, strides_val)
-        If metadata is provided:
-            (strides_train, strides_val, meta_train, meta_val)
+        If metadata is None: (strides_train, strides_val)
+        If metadata is provided: (strides_train, strides_val, meta_train, meta_val)
     """
     rng = np.random.default_rng(seed)
 

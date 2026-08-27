@@ -7,9 +7,9 @@ Generates 4 diagnostic plots showing each processing stage:
   4. Activation distribution — what the autoencoder will see
 
 Usage:
-    leaps-visualize
-    leaps-visualize --subject AB10
-    leaps-visualize --subject AB10 --output-dir results/plots
+    leaps visualize
+    leaps visualize --subject AB10
+    leaps visualize --subject AB10 --output-dir results/plots
 """
 
 import argparse
@@ -229,7 +229,7 @@ def main():
 
     print(f"Running full pipeline for {subject}...")
     min_vals, max_vals = compute_normalization(emg_tables, gc_tables, cond_tables)
-    strides_3d = process_mode_trials(emg_tables, gc_tables, min_vals, max_vals, cond_tables)
+    strides_3d, *_ = process_mode_trials(emg_tables, gc_tables, min_vals, max_vals, cond_tables)
     activations = strides_3d.reshape(-1, strides_3d.shape[-1])
     print(f"  {strides_3d.shape[0]} strides, {activations.shape[0]} activation snapshots")
 
