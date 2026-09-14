@@ -347,3 +347,48 @@ on muscle-actuated control. Paper stands on results 1–3. Data in
 `data.json` key `vcond_h0918`; raw in `results/vcond_heldout/`; harness
 `leaps.scripts.eval_vcond_heldout_speed`. Findings-log chart panel TODO
 (low priority — it's a null).
+
+## 2026-08-27 — F2 (per-muscle activation vs cross-human EMG): mixed, not a clean win
+
+`leaps.scripts.biomech_fidelity --figure f2`, Park et al. 2026 Fig 2 replica.
+Cross-human benchmark: 22 Camargo subjects, treadmill ~1.2 m/s, pairwise
+Pearson r per muscle (n=231). Sim conditions pooled over 2 seeds × 5 eps,
+heel-strike segmented, RVC-normalized. h0918 + h1622 (h2190 pending 18M eval).
+
+Mean r vs 22 human subjects:
+
+| muscle | human | real-LAP h1622 | mpo h1622 | real-LAP h0918 | mpo h0918 |
+|---|---|---|---|---|---|
+| SOL | .90 | .40 | .72 | .00 | .88 |
+| GAS | .89 | .41 | .68 | -.06 | .64 |
+| TA  | .80 | .42 | .60 | -.38 | .64 |
+| VM/VL | .90 | .58/.61 | .74 | .41/.45 | .61/.62 |
+| RF  | .74 | **-.29** | -.08 | -.32 | -.47 |
+| BF (hamstrings) | .65 | **.75** | -.17 | .12 | .42 |
+| ST (hamstrings) | .69 | **.77** | -.24 | .09 | .39 |
+| GMED | .85 | **.70** (loosen-GM .74) | .41 | — | — |
+
+Reads:
+1. **Humans are highly self-consistent** (box .65–.90 every muscle). No sim
+   policy — prior or not — lands in the human band on most muscles.
+2. **Prior helps on h1622 hamstrings + glut_med**, exactly where the
+   backbones go *anticorrelated* (mpo/null hamstrings r ≈ -.2). real-LAP
+   hamstrings .75/.77 is inside the human band; glut_med .70, loosen-GM .74.
+   → targeted-correction story: the prior fixes the muscles the
+   unconstrained controller gets qualitatively wrong.
+3. **Prior hurts on rectus femoris** (real-LAP r ≈ -.3 both bodies,
+   anticorrelated) and is worse than mpo/null on plantarflexors + quads.
+   NB RF is anticorrelated for *every* method on h0918 (mpo -.47) — likely a
+   model-artifact (biarticular rect_fem co-opted for hip flexion); consider
+   excluding rather than scoring against the prior.
+4. **h0918: prior loses on every muscle.** The h1622 hamstrings win does NOT
+   replicate on h0918 (same lumped `hamstrings_r`, same k6 decoder) — the RL
+   policy integrates the prior differently per body.
+5. `null` (no content) does well on SOL/VM/VL — better than the prior there.
+
+Open flag before finalizing: real-LAP activation waveforms are visibly more
+oscillatory/multi-peak than mpo's (see the PNGs) — could be a genuine
+w=0.1-blend property or a rollout/eval artifact; check against a
+pre-collapse checkpoint and/or the raw decoded z. h2190 (Park's actual
+model, un-lumped muscles) still to run from step_18000000.
+Renders: `results/biomech_fidelity/f2_{h0918,h1622}.png` + `.csv`.

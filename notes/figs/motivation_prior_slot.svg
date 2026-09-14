@@ -1,0 +1,97 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="700" viewBox="0 0 1200 700">
+  <defs>
+    <style>
+      text { font-family: 'Helvetica Neue', Arial, sans-serif; }
+      .hd  { font-weight: 700; }
+    </style>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#e0714f"/>
+    </marker>
+    <filter id="sh" x="-8%" y="-8%" width="116%" height="128%">
+      <feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="#1b2233" flood-opacity="0.10"/>
+    </filter>
+  </defs>
+
+  <rect width="1200" height="700" fill="#ffffff"/>
+
+  <!-- title -->
+  <text class="hd" x="40" y="44" font-size="30" fill="#1b2233">One template, two open slots</text>
+  <text x="40" y="74" font-size="15" fill="#5a6472">Every biped-locomotion RL method shares one body, one action interface, one evaluation protocol. Only two slots vary &#8212; and the prior slot has only ever been filled from inside the simulator.</text>
+  <line x1="40" y1="92" x2="1160" y2="92" stroke="#e2e6ec" stroke-width="1"/>
+
+  <!-- ================= LEFT PANEL ================= -->
+  <text class="hd" x="40" y="122" font-size="13.5" letter-spacing="1.4" fill="#7a8494">THE STANDARD TEMPLATE &#183; HELD FIXED</text>
+
+  <rect x="40" y="136" width="526" height="250" rx="14" fill="#f4f6fa" stroke="#c7cfdd" stroke-width="1.2" filter="url(#sh)"/>
+
+  <g fill="#37414f" font-size="13.5">
+    <rect x="52" y="163" width="7" height="7" fill="#9aa7bd"/><text x="68" y="172">Fixed simulated body &#8212; one morphology, one actuator set</text>
+    <rect x="52" y="198" width="7" height="7" fill="#9aa7bd"/><text x="68" y="207">Observation: body pose + velocity, joint states, previous action</text>
+    <rect x="52" y="233" width="7" height="7" fill="#9aa7bd"/><text x="68" y="242">Action normalised to [&#8722;1, 1]  &#8594;  torque or muscle excitation</text>
+    <rect x="52" y="268" width="7" height="7" fill="#9aa7bd"/><text x="68" y="277">Reward: reach a target velocity, minimise effort</text>
+    <rect x="52" y="303" width="7" height="7" fill="#9aa7bd"/><text x="68" y="312">Terminate on torso height / tilt &#183; seeded parallel workers</text>
+    <rect x="52" y="338" width="7" height="7" fill="#9aa7bd"/><text x="68" y="347">Evaluate: mean &#177; SD learning curve, &#8805; 5 seeds</text>
+  </g>
+
+  <!-- slot 1 -->
+  <rect x="40" y="400" width="526" height="40" rx="10" fill="#fff3df" stroke="#edb95c" stroke-width="1.2"/>
+  <text class="hd" x="58" y="425" font-size="12.5" letter-spacing="0.5" fill="#8a6410">SLOT 1 &#183; ALGORITHM</text>
+  <text x="212" y="425" font-size="12.5" fill="#6a5528">DDPG &#183; TD3 &#183; PPO &#183; SAC &#183; MPO &#183; ES</text>
+
+  <!-- slot 2 (accent) -->
+  <rect x="40" y="450" width="526" height="46" rx="10" fill="#ffe9e3" stroke="#e0714f" stroke-width="1.6"/>
+  <text class="hd" x="58" y="470" font-size="12.5" letter-spacing="0.5" fill="#a83f22">SLOT 2 &#183; COORDINATION PRIOR</text>
+  <text x="58" y="488" font-size="12" fill="#8a4a34">bias the action space toward coordinated muscle patterns</text>
+
+  <!-- connector to right panel -->
+  <line x1="566" y1="473" x2="596" y2="473" stroke="#e0714f" stroke-width="1.6" marker-end="url(#arrow)"/>
+
+  <!-- ================= RIGHT PANEL ================= -->
+  <text class="hd" x="600" y="122" font-size="13.5" letter-spacing="1.2" fill="#7a8494">SLOT 2 &#183; WHERE THE PRIOR COMES FROM</text>
+
+  <rect x="600" y="136" width="560" height="250" rx="14" fill="#f6f8fb" stroke="#9aa7bd" stroke-width="1.4" stroke-dasharray="7 5"/>
+  <rect x="612" y="125" width="264" height="22" rx="11" fill="#ffffff" stroke="#9aa7bd" stroke-width="1"/>
+  <text class="hd" x="624" y="140" font-size="10.5" letter-spacing="0.8" fill="#5a6472">INSIDE THE SIMULATED EMBODIMENT</text>
+
+  <g>
+    <rect x="616" y="160" width="528" height="38" rx="8" fill="#ffffff" stroke="#cfd6e2"/>
+    <text x="632" y="183.5" font-size="13.5" fill="#3a4658">Hand-tuned feed-forward controller</text>
+    <text x="1130" y="183.5" font-size="11.5" fill="#8a94a6" text-anchor="end">LAP</text>
+
+    <rect x="616" y="205" width="528" height="38" rx="8" fill="#ffffff" stroke="#cfd6e2"/>
+    <text x="632" y="228.5" font-size="13.5" fill="#3a4658">Roll-out of an already-trained policy</text>
+    <text x="1130" y="228.5" font-size="11.5" fill="#8a94a6" text-anchor="end">LAP</text>
+
+    <rect x="616" y="250" width="528" height="38" rx="8" fill="#ffffff" stroke="#cfd6e2"/>
+    <text x="632" y="273.5" font-size="13.5" fill="#3a4658">Per-subject inverse-simulation solve</text>
+    <text x="1130" y="273.5" font-size="11.5" fill="#8a94a6" text-anchor="end">Park et al. 2026</text>
+
+    <rect x="616" y="295" width="528" height="38" rx="8" fill="#ffffff" stroke="#cfd6e2"/>
+    <text x="632" y="318.5" font-size="13.5" fill="#3a4658">Agent&#8217;s own self-play or recent states</text>
+    <text x="1130" y="318.5" font-size="11.5" fill="#8a94a6" text-anchor="end">SAR &#183; DEP-RL &#183; Lattice</text>
+  </g>
+  <text x="616" y="366" font-size="11.5" font-style="italic" fill="#7a8494">each needs a working controller, policy, or optimiser on that same body &#8212; first</text>
+
+  <!-- entry arrow -->
+  <line x1="700" y1="402" x2="700" y2="389" stroke="#e0714f" stroke-width="1.6" marker-end="url(#arrow)"/>
+  <text x="712" y="400" font-size="10" font-style="italic" fill="#a83f22">enters from outside</text>
+
+  <!-- LEAPS box -->
+  <rect x="600" y="404" width="560" height="74" rx="12" fill="#ffe9e3" stroke="#e0714f" stroke-width="2" filter="url(#sh)"/>
+  <text class="hd" x="618" y="428" font-size="14.5" fill="#a83f22">Surface EMG &#8212; measured from a walking human</text>
+  <text class="hd" x="1142" y="428" font-size="11.5" fill="#a83f22" text-anchor="end">LEAPS &#183; this thesis</text>
+  <text x="618" y="449" font-size="11.5" fill="#7d4634">no controller &#183; no per-subject solve &#183; works for any individual, including patients</text>
+  <text x="618" y="467" font-size="10.5" fill="#9a7060">cost: EMG reaches only superficial muscles &#8212; coverage falls 67% &#8594; 55% &#8594; 24% as the model grows</text>
+
+  <!-- ================= BOTTOM STRIP ================= -->
+  <rect x="40" y="498" width="1120" height="186" rx="14" fill="#f4f6fa" stroke="#d7dde7" stroke-width="1.2" filter="url(#sh)"/>
+  <rect x="40" y="498" width="6" height="186" rx="3" fill="#e0714f"/>
+  <text class="hd" x="66" y="528" font-size="12.5" letter-spacing="1.5" fill="#a83f22">WHY THIS MATTERS</text>
+  <g fill="#2b3444" font-size="16.5">
+    <text x="66" y="558">In-simulator prior sources hit a wall exactly where it matters most &#8212; 90-muscle models and individual patients.</text>
+    <text x="66" y="586">This thesis is the first controlled test of a prior that needs neither a controller nor a per-subject simulation.</text>
+    <text x="66" y="614">Real EMG beats a null prior under a hard constraint on all three models, with better sample efficiency.</text>
+  </g>
+  <text x="66" y="642" font-size="15.5" fill="#4a5464">Plus guidance: hard constraint beats soft blend, best at low blend weight (w &#8804; 0.1), and a measured coverage limit.</text>
+  <text x="66" y="668" font-size="14" font-style="italic" fill="#6a7280">Not a state-of-the-art claim &#8212; a map the next attempt can build on.</text>
+</svg>
