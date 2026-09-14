@@ -88,6 +88,29 @@ def build_decoder(dim_latent: int, dim_a: int = 11, hidden: int = None, cond_dim
     )
 
 
+class _LengthReflex:
+    """Sanity-check prototype, not a calibrated reflex model: a positive
+    length-feedback correction on top of the frozen decoder's a_hat, using
+    live muscle_fiber_length_array() -- the same running-min/max
+    normalization DepContentPrior already uses. Gives a_hat the one thing
+    it structurally lacks vs. a real low-level controller (e.g. Fig 1 of
+    the quadruped-DRL paper this idea came from): a feedback path that
+    reacts to current body state, not just the frozen z it was handed.
+    Scoped to mapped actuators only in action() -- unmapped ones have no
+    prior to correct in the first place."""
+
+    def __init__(self, n_actuators: int, gain: float):
+        self.gain = gain
+        self._max_len = np.zeros(n_actuators)
+        self._min_len = np.ones(n_actuators) * 100.0
+
+    def step(self, fiber_lengths: np.ndarray) -> np.ndarray:
+        self._max_len = np.maximum(fiber_lengths, self._max_len)
+        self._min_len = np.minimum(fiber_lengths, self._min_len)
+        length_u = (fiber_lengths - self._min_len) / (self._max_len - self._min_len + 0.1)
+        return self.gain * length_u  # fires in proportion to how stretched the muscle is right now
+
+
 class LatentActionPriorWrapper(gym.ActionWrapper):
     """Action space is declared as (dim_latent + n_actuators,) in [0, 1], but
     that Box is aspirational, not enforced -- SconeWrapper's _inner_step
@@ -121,6 +144,7 @@ class LatentActionPriorWrapper(gym.ActionWrapper):
         proxy_map: Optional[dict[str, str]] = None,
         dep_content: bool = False, use_whitening: bool = False, whiten_radial_cap: float = 0.5,
         loosened_actuators: Optional[list[str]] = None, loosened_residual_weight: Optional[float] = None,
+        state_feedback_gain: float = 0.0,
     ):
         # dep_content: a_hat sourced from DEP's self-organized C matrix
         # instead of the decoder -- genuinely never touches decoder_path/
@@ -151,6 +175,8 @@ class LatentActionPriorWrapper(gym.ActionWrapper):
         )
         self.n_actuators = len(actuator_names)
         self.dim_latent = dim_latent
+        self.state_feedback_gain = state_feedback_gain
+        self._reflex = _LengthReflex(self.n_actuators, state_feedback_gain) if state_feedback_gain > 0 else None
 
         # For compensation tracking (see notes/representation_learning.md
         # discussion): which actuators get a real decoded prior vs. rely
@@ -395,6 +421,17 @@ class LatentActionPriorWrapper(gym.ActionWrapper):
             # actuator -- verified against a real rollout: rect_fem max
             # dropped from 5.358 to 0.998, matching every other muscle.
             a_hat = self.mapper.map_emg_to_muscles(emg_u)
+
+        if self._reflex is not None:
+            # Sanity-check only (see _LengthReflex docstring) -- closes the
+            # loop the frozen decoder itself can't: a_hat reacts to live
+            # muscle state, not just z. Scoped to mapped actuators (the
+            # only ones with a real a_hat to correct) and re-clipped to
+            # [0,1] since the convex blend below assumes that range.
+            fiber_lengths = self.env.unwrapped.model.muscle_fiber_length_array()
+            fb = self._reflex.step(fiber_lengths)
+            a_hat = a_hat.copy()
+            a_hat[self._mapped_mask] = np.clip(a_hat[self._mapped_mask] + fb[self._mapped_mask], 0.0, 1.0)
 
         # HERE! Convex combination, not addition -- see the module
         # docstring's HERE! note for the full reasoning. a_hat and a_full are
