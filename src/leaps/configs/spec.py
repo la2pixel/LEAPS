@@ -5,6 +5,8 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Optional
 
+from leaps.paths import PRIORS_DIR, RESULTS_DIR, RUNS_DIR
+
 # body
 BODIES = {"h0918": 18, "h1622": 22, "h2190": 90}
 
@@ -89,8 +91,10 @@ class RunSpec:
     # This value itself is still used as-is for early_tests (unchanged, flat
     # layout, kept for golden-file test fidelity) and as the string prefix
     # the "_priors" suffix is appended to.
-    synergy_root: str = "/home/nadinebadie/lalitha/LEAPS/results/synergy"
-    baselines_root: str = "/home/nadinebadie/lalitha/LEAPS/baselines_DEPRL"
+    synergy_root: str = str(RESULTS_DIR / "synergy")
+    # released decoders (AB06_corrected, one per k) live here instead
+    priors_root: str = str(PRIORS_DIR)
+    baselines_root: str = str(RUNS_DIR)
 
     def __post_init__(self) -> None:
         if self.body not in BODIES:

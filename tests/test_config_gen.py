@@ -14,8 +14,9 @@ import yaml
 from leaps.configs.builder import _decoder_paths, build_config
 from leaps.configs.spec import Category, DecoderSource, ExperimentGroup, RewardVariant, RunSpec
 from leaps.configs.writer import config_path, write_config
+from leaps.paths import RUNS_DIR
 
-BASELINES_ROOT = Path("/home/nadinebadie/lalitha/LEAPS/baselines_DEPRL")
+BASELINES_ROOT = RUNS_DIR
 
 # (RunSpec kwargs, path to a real, non-drifted config.yaml it should match)
 # All real files live under early_tests/ (2026-08-15 baselines_DEPRL reorg --
@@ -92,6 +93,8 @@ CASES = [
 
 @pytest.mark.parametrize("spec_kwargs,real_path", CASES, ids=[c[1] for c in CASES])
 def test_builder_reproduces_real_config(spec_kwargs, real_path):
+    if not (BASELINES_ROOT / real_path).exists():
+        pytest.skip("golden config only exists in the original run tree")
     generated = build_config(RunSpec(**spec_kwargs))
     real = yaml.safe_load((BASELINES_ROOT / real_path).read_text())
     # wandb block is excluded: name/group/tags conventions were already
@@ -114,20 +117,13 @@ def test_decoder_validation_raises_for_missing_k6_ab20():
         build_config(spec)
 
 
-def test_decoder_paths_pooled_k11_exist():
-    """Sanity check the validator's happy path against a decoder that's
-    confirmed to exist, so the AB20 test above is known to be testing the
-    missing-file branch and not some unrelated bug.
-
-    2026-08-19: pooled/k11 (the original target here) moved to
-    synergy_priors/deprecated_precorrected_decoder/ along with every other
-    pre-correction decoder -- only decoder_k6_AB06_corrected is still live
-    in the active final_experiments path, so that's the happy-path case
-    now."""
-    spec = RunSpec(category=Category.EMG_LAP, body="h0918", dim_latent=6, decoder_source=DecoderSource.AB06_CORRECTED)
-    decoder_path, norm_path = _decoder_paths(spec)
-    assert Path(decoder_path).exists()
-    assert Path(norm_path).exists()
+def test_decoder_paths_released_priors_exist():
+    """Happy path for the validator: the released priors/ decoders resolve."""
+    for k in (2, 4, 6, 8, 11):
+        spec = RunSpec(category=Category.EMG_LAP, body="h0918", dim_latent=k, decoder_source=DecoderSource.AB06_CORRECTED)
+        decoder_path, norm_path = _decoder_paths(spec)
+        assert Path(decoder_path).exists()
+        assert Path(norm_path).exists()
 
 
 def test_deprecated_precorrected_decoders_not_resolved_by_final_experiments():

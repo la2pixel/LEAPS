@@ -1,69 +1,24 @@
 """Latent-action-prior wrapper for SCONE/Hyfydy gym envs.
 
-Wraps an existing env (e.g. gym.make("sconewalk_h0918-v1")) so the policy
-controls a low-dimensional latent z plus a full-size residual, instead of
-the muscle-space action directly -- matching the reference paper's method:
+The policy outputs a latent z (dim k) plus a full-size residual a_full. A
+frozen EMG decoder (priors/decoder_k*_AB06_corrected) maps z to 11 EMG
+channels, EMGToMuscleMapper maps those onto the model's muscles, and the two
+are blended per actuator:
 
-    a_hat = EMGToMuscleMapper(decoder(z))   -- 0 for actuators with no substitute
-    final_action = (1 - residual_weight) * a_hat + residual_weight * a_full
+    a_hat = EMGToMuscleMapper(decoder(z))        # 0 where no EMG channel maps
+    final_action = (1 - w) * a_hat + w * a_full
 
-z and a_full both come from the policy each step. Every actuator gets both
-contributions (not a partition) -- for actuators EMGToMuscleMapper has no
-substitute for (including the entire left leg by default, since the mapper
-only populates "_r" muscles unless mirror_left=True), a_hat is 0 there, so
-final_action reduces to residual_weight * a_full, exactly as before this fix.
+w is mapped_residual_weight on actuators that have an EMG channel and
+residual_weight (1.0) elsewhere, so unmapped muscles are fully free. a_hat
+is taken from the decoder's sigmoid output, so both terms are in [0, 1] and
+the residual can correct the prior in either direction. The decoder is
+never updated by RL.
 
-The decoder is the one trained in notebooks/get_synergy.ipynb -- frozen
-here (requires_grad=False, eval mode), never updated by RL.
+Controls: null_prior (a_hat = 0, w forced to 1), untrained_decoder (same
+architecture, random weights), dep_content (a_hat from DEP's correlation
+matrix, see dep_content_prior.py).
 
-HERE! This used to be a plain sum, `a_hat + residual_weight * a_full`.
-a_full is in [0, 1] (policy's action_space is a [0,1] Box) and never allowed
-to go negative -- so under the old formula final_action was provably >=
-a_hat pointwise, every mapped muscle, every timestep, regardless of a_hat's
-own scale. The residual could only push a mapped muscle's activation up,
-never correct it down, no matter how wrong a_hat was for that instant of the
-gait cycle. That specifically handicapped the actuators that *do* carry a
-real EMG prior, relative to a null_prior control (a_hat=0 everywhere, so its
-residual always had the full [0, residual_weight] range available in either
-direction). The convex-combination form fixes this: a_full can now pull
-final_action toward a_hat's own value from either side, restoring genuine
-bidirectional correction -- verified directly (not just by construction):
-a live env smoke test with a_full forced to 0 showed final_action < a_hat on
-mapped muscles, impossible under the old formula.
-
-CORRECTION (caught by that same smoke test, not assumed) -- HISTORICAL, see
-RE-FIX below: for a while, a_hat was NOT bounded to [0, 1] the way this
-comment originally claimed. The decoder's Sigmoid output *is* in [0,1], but
-`_from_unit()` (line ~131) immediately rescaled it back into raw EMG signal
-units via p01/p99 -- the inverse of the [0,1] normalization the decoder was
-trained under (see get_synergies.py) -- before EMGToMuscleMapper's weighted
-average (rows sum to 1, but over raw-unit values, not [0,1] ones) produced
-a_hat. Empirically, a_hat reached ~1.9 in a live smoke test at k=6, and up to
-5.36 on rect_fem-mapped actuators specifically in a later, fuller check
-(rectus femoris's raw EMG scale is ~5-13x every other channel -- a dataset
-artifact, not signal). This broke more than boundedness: it made those
-actuators structurally uncorrectable back toward 0 far more often than other
-muscles, for reasons that had nothing to do with the EMG content itself.
-
-RE-FIX, 2026-08-19: a_hat is computed from `emg_u` (the raw Sigmoid output)
-now, not from `emg` (the raw-unit rescale) -- `emg`/`_last_emg` is kept
-around only for diagnostic logging, never fed to the blend. a_hat is once
-again provably bounded [0,1] for every mapped actuator, with no cross-muscle
-scale disparity -- verified against a real rollout (rect_fem max dropped
-from 5.358 to 0.998). So the sentence this correction originally struck down
--- "a_hat and a_full are both in [0,1], so this blend is too" -- is true
-again, this time for a load-bearing reason (uniform per-channel scale), not
-by accident.
-
-Runs from before this change used the additive form and are NOT directly
-comparable to runs after it: residual_weight now means "trust weight
-between prior and residual" instead of "size of an additive bonus on top of
-an always-full-strength prior." null_prior and plain-MPO/DEP-MPO runs are
-unaffected (a_hat=0 makes the two formulas identical), so only the real-EMG
-latent-prior conditions need re-running for a fair comparison.
-
-Diagnostics (latent_residual_share etc.) are computed post-clip in
-_diagnostics_post_clip(), not inline in action() -- see there for why.
+Residual/prior diagnostics are computed post-clip in _diagnostics_post_clip().
 """
 
 from typing import Optional
@@ -272,7 +227,7 @@ class LatentActionPriorWrapper(gym.ActionWrapper):
         else:
             cond_dim = 1 if speed_cond is not None else 0
             self.decoder = build_decoder(dim_latent, cond_dim=cond_dim)
-            # HERE! untrained_decoder is the content-vs-availability control: skip
+            # untrained_decoder is the content-vs-availability control: skip
             # loading the fitted state dict entirely, so self.decoder stays at
             # its random nn.Linear init. This gives a_hat the same nonzero,
             # similarly-scaled output range as the real condition (same p01/p99
@@ -433,19 +388,10 @@ class LatentActionPriorWrapper(gym.ActionWrapper):
             a_hat = a_hat.copy()
             a_hat[self._mapped_mask] = np.clip(a_hat[self._mapped_mask] + fb[self._mapped_mask], 0.0, 1.0)
 
-        # HERE! Convex combination, not addition -- see the module
-        # docstring's HERE! note for the full reasoning. a_hat and a_full are
-        # both in [0, 1], so this blend is too, and a_full can now pull
-        # final_action down toward 0 as well as up toward 1 relative to
-        # a_hat. The old `a_hat + residual_weight * a_full` could only ever
-        # push activation up (both terms were >= 0), so a mapped muscle's
-        # activation could never be corrected below whatever the EMG prior
-        # said for that instant, no matter how wrong it was.
+        # convex blend: a_full can pull a mapped muscle below a_hat as well as above it
         final_action = (1 - self.residual_weight) * a_hat + self.residual_weight * a_full
 
-        # HERE! Diagnostics used to be computed right here, on unclipped
-        # a_hat/final_action. SconeWrapper still clips the actuator input
-        # downstream (to [0, 0.5] when clip_actions=True, [0, 1.0] otherwise
+        # SconeWrapper clips the actuator input downstream (to [0, 0.5] when clip_actions=True, [0, 1.0] otherwise
         # -- see deprl/env_wrappers/scone_wrapper.py), so we just stash the
         # raw pieces here; the actual diagnostics are computed post-clip in
         # _diagnostics_post_clip(), called from SconeWrapper._inner_step once
@@ -470,7 +416,7 @@ class LatentActionPriorWrapper(gym.ActionWrapper):
         return out
 
     def _diagnostics_post_clip(self, clip_lo: float, clip_hi: float) -> dict:
-        """HERE! Residual/prior diagnostics computed on the values actually
+        """Residual/prior diagnostics computed on the values actually
         applied to the muscles, not the raw a_hat/final_action from action().
 
         Both a_hat and final_action get clipped to the same [clip_lo, clip_hi]
@@ -481,7 +427,7 @@ class LatentActionPriorWrapper(gym.ActionWrapper):
         clip_actions=True), not there to contain overflow from this formula.
 
         residual = final_action - a_hat is signed now (post convex-
-        combination fix -- see action()'s HERE! comment): positive means the
+        combination): positive means the
         policy pushed activation above the prior, negative means it pulled
         activation below the prior -- a real downward correction, which the
         old additive formula could never produce. Every field below already

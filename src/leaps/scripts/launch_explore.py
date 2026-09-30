@@ -3,8 +3,8 @@ product of any multi-valued flags.
 
 For the locked-in production set (k=6, w=0.5, unclipped) use
 launch_locked.py instead, which has a narrower, harder-to-misuse surface.
-Use this one for one-off exploration, alternate k/w/clip values,
-AB06/AB20 decoders, or (once designed) style-reward variants.
+Use this one for the w/k sweeps, the clip ablation, and the
+untrained/null/DEP-content control arms.
 
 Usage:
     # single run:
@@ -13,8 +13,8 @@ Usage:
 
     # sweep: every combination of k x w x clip, seeds 0-1:
     python -m leaps.scripts.launch_explore --category emg_lap --body h0918 \\
-        --k 6 11 --w 0.1 0.5 --clip false true --decoder-source pooled AB06 \\
-        --seeds 0 1 --queue-out run_scripts/queue_sweep.txt
+        --k 2 6 11 --w 0.0 0.1 0.5 --clip false true --seeds 0 1 \\
+        --queue-out queue_sweep.txt
 """
 
 from __future__ import annotations
@@ -48,15 +48,13 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--mirror", nargs="+", default=[True], type=_bool)
     p.add_argument("--mirror-mode", nargs="+", default=["static"], choices=["static"])
     p.add_argument(
-        "--decoder-source", nargs="+", default=["pooled"], choices=[s.value for s in DecoderSource]
+        "--decoder-source", nargs="+", default=["AB06_corrected"], choices=[s.value for s in DecoderSource]
     )
     p.add_argument("--dep-kappa", nargs="+", default=[1000], type=int)  # verified against authors' shipped configs, see RunSpec.dep_kappa
     p.add_argument("--net-size", nargs="+", default=[256], type=int)
     p.add_argument("--resume", type=_bool, default=True)
     p.add_argument("--queue-out", type=Path, default=None)
-    p.add_argument("--rolling", type=int, default=None)
     p.add_argument("--dry-run", action="store_true")
-    p.add_argument("--run", action="store_true")
     p.add_argument("--overwrite", action="store_true")
     return p
 
@@ -102,9 +100,7 @@ def main() -> None:
     generate_and_queue(
         specs,
         queue_out=args.queue_out,
-        rolling=args.rolling,
         dry_run=args.dry_run,
-        run=args.run,
         overwrite=args.overwrite,
     )
 

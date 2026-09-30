@@ -20,9 +20,10 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 
-from leaps.data import discover_trials, load_mat_table
 from leaps.data.metadata import CAMARGO_DATA_ROOT, EMG_CHANNEL_LABELS, EMG_CHANNELS
-from leaps.data.processing import (
+from leaps.data import (
+    discover_trials,
+    load_mat_table,
     compute_normalization,
     find_stride_intervals,
     process_mode_trials,

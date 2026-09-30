@@ -1,6 +1,6 @@
 """Stride model factory and name sets for train_strides.py."""
 
-from leaps.models.old_code import ActionModel
+from leaps.models.legacy_models import ActionModel
 
 STRIDE_SKLEARN_MODELS = {"StridePCA", "StrideNMF"}
 STRIDE_PYTORCH_MODELS = {"StrideFlatAE", "StrideFlatVAE"}
@@ -24,7 +24,7 @@ def build_stride_model(
     Raises:
         ValueError: If model_name is not recognized.
     """
-    from leaps.models.old_code import (
+    from leaps.models.legacy_models import (
         StrideFlatAE,
         StrideFlatVAE,
         StrideNMFModel,

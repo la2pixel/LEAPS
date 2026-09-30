@@ -14,19 +14,21 @@ from __future__ import annotations
 
 import argparse
 import csv
-import os
 from pathlib import Path
 
 import h5py
 import numpy as np
 import pandas as pd
 from scipy import stats
+from scipy.signal import savgol_filter
 
-from leaps.data.processing import N_GAIT_POINTS, time_normalize_stride
+from leaps.data import N_GAIT_POINTS, time_normalize_stride
 from leaps.envs.emg_mapping import MODEL_MAPS
+from leaps.paths import SCONE_LIVE_DIR
+from leaps.data.metadata import LEAPS_H5_PATH
 
-H5 = os.environ.get("LEAPS_EMG_H5", "/home/nadinebadie/lalitha/datasets/emg_activations_v2.h5")
-LIVE = Path("/media/calc_2/scone_results/live/lalitha/final_experiments")
+H5 = LEAPS_H5_PATH
+LIVE = SCONE_LIVE_DIR / "lalitha/final_experiments"
 OUT = Path(__file__).resolve().parents[3] / "results" / "biomech_fidelity"
 
 # Park et al. Fig 2 muscle order; last one (gluteusmedius) is our extra.
@@ -42,9 +44,14 @@ CAPTION_ORDER = [
     "bicepsfemoris", "rectusfemoris", "vastusmedialis", "vastuslateralis",
 ]
 # Their Fig 2 color convention: orange = independent, blue = synergistic.
-# Only applied to these two condition names when --park-colors is passed;
-# every other condition (dep-mpo, null, loosen-*) keeps its COLORS entry.
-PARK_STYLE_COLORS = {"mpo": "#e08214", "real-LAP": "#3182bd"}
+# Only applied to these condition names when --park-colors is passed; every
+# other condition (null, loosen-*) keeps its COLORS entry. w00/w01/w05 get a
+# light->dark blue gradient (increasing free-residual share), dep-mpo a
+# second warm tone distinct from mpo's orange.
+PARK_STYLE_COLORS = {
+    "mpo": "#e08214", "dep-mpo": "#b35806",
+    "real-LAP-w00": "#9ecae1", "real-LAP": "#3182bd", "real-LAP-w05": "#08519c",
+}
 PARK_ABBR = {
     "soleus": "SOL", "gastrocmed": "GAS", "tibialisanterior": "TA",
     "vastusmedialis": "VM", "vastuslateralis": "VL", "rectusfemoris": "RF",
@@ -57,21 +64,33 @@ RUNS: dict[str, dict[str, list[str]]] = {
     "h0918": {
         "real-LAP": ["emg_lap/h0918/h0918_k6_w01_onlyvelrew_AB06_corrected_seed0",
                      "emg_lap/h0918/h0918_k6_w01_onlyvelrew_AB06_corrected_seed1"],
+        "real-LAP-w00": [f"emg_lap/h0918/h0918_k6_w00_onlyvelrew_AB06_corrected_seed{s}" for s in (0, 1)],
+        "real-LAP-w05": [f"emg_lap/h0918/h0918_k6_w05_onlyvelrew_AB06_corrected_seed{s}" for s in (0, 1)],
         "mpo": ["mpo/h0918/h0918_onlyvelrew_seed0", "mpo/h0918/h0918_onlyvelrew_seed1"],
         "dep-mpo": ["dep-mpo/h0918/h0918_onlyvelrew_dep_seed0",
                     "dep-mpo/h0918/h0918_onlyvelrew_dep_seed1"],
         "null": ["no_lap/h0918/h0918_k6_w05_onlyvelrew_AB06_corrected_null_seed0",
                  "no_lap/h0918/h0918_k6_w05_onlyvelrew_AB06_corrected_null_seed1"],
+        "untrained": [f"untrained_lap/h0918/h0918_k6_w05_onlyvelrew_AB06_corrected_untrainedprior_seed{s}"
+                      for s in (0, 1)],
     },
     "h1622": {
         "real-LAP": [f"emg_lap/h1622/h1622_k6_w01_onlyvelrew_AB06_corrected_seed{s}"
                      for s in (0, 1, 2, 3)],
+        # seed0 only -- the sole w=0.1 seed that walks rather than bounds.
+        # "real-LAP" above stays pooled (other figures depend on it); the
+        # biomechanics section reports walking gaits only.
+        "real-LAP-w01-seed0": ["emg_lap/h1622/h1622_k6_w01_onlyvelrew_AB06_corrected_seed0"],
+        "real-LAP-w00": [f"emg_lap/h1622/h1622_k6_w00_onlyvelrew_AB06_corrected_seed{s}" for s in (0, 1)],
+        "real-LAP-w05": [f"emg_lap/h1622/h1622_k6_w05_onlyvelrew_AB06_corrected_seed{s}" for s in (0, 1)],
         "mpo": ["mpo/h1622/h1622_onlyvelrew_seed0",
                 "mpo/h1622/h1622_net256_onlyvelrew_seed1",
                 "mpo/h1622/h1622_onlyvelrew_seed2"],
         "dep-mpo": [f"dep-mpo/h1622/h1622_onlyvelrew_dep_seed{s}" for s in (0, 1, 2)],
         "null": [f"no_lap/h1622/h1622_k6_w05_onlyvelrew_AB06_corrected_null_seed{s}"
                  for s in (0, 1)],
+        "untrained": [f"untrained_lap/h1622/h1622_k6_w05_onlyvelrew_AB06_corrected_untrainedprior_seed{s}"
+                      for s in (0, 1)],
         "loosen-GM": ["other/emg_lap/h1622/h1622_k6_w01_loosenglut_med05_onlyvelrew_AB06_corrected_seed0",
                       "other/emg_lap/h1622/h1622_k6_w01_loosenglut_med05_onlyvelrew_AB06_corrected_seed1"],
         "loosen-TA": ["other/emg_lap/h1622/h1622_k6_w01_loosentib_ant05_onlyvelrew_AB06_corrected_seed0",
@@ -80,12 +99,16 @@ RUNS: dict[str, dict[str, list[str]]] = {
     "h2190": {
         "real-LAP": [f"emg_lap/h2190/h2190_k6_w01_onlyvelrew_AB06_corrected_seed{s}"
                      for s in (0, 1, 2, 3)],
+        "real-LAP-w00": [f"emg_lap/h2190/h2190_k6_w00_onlyvelrew_AB06_corrected_seed{s}" for s in (0, 1)],
+        "real-LAP-w05": [f"emg_lap/h2190/h2190_k6_w05_onlyvelrew_AB06_corrected_seed{s}" for s in (0, 1)],
         "mpo": [f"mpo/h2190/h2190_onlyvelrew_seed{s}" for s in (0, 1, 2)],
         "dep-mpo": ["dep-mpo/h2190/h2190_onlyvelrew_dep_seed0",
                     "dep-mpo/h2190/h2190_noclip_net256_onlyvelrew_seed1",
                     "dep-mpo/h2190/h2190_onlyvelrew_dep_seed2"],
         "null": [f"no_lap/h2190/h2190_k6_w05_onlyvelrew_AB06_corrected_null_seed{s}"
                  for s in (0, 1)],
+        "untrained": [f"untrained_lap/h2190/h2190_k6_w05_onlyvelrew_AB06_corrected_untrainedprior_seed{s}"
+                      for s in (0, 1)],
     },
 }
 
@@ -144,7 +167,9 @@ MIN_ROWS: dict[str, int] = {"h2190": 400}
 COLORS = {"real-LAP": "#d62728", "mpo": "#1f77b4", "dep-mpo": "#2ca02c",
           "null": "#7f7f7f", "loosen-GM": "#ff7f0e", "loosen-TA": "#9467bd",
           "real-LAP-noclip": "#d62728", "real-LAP-clip": "#e377c2",
-          "real-LAP-old": "#d62728", "mpo-full": "#1f77b4"}
+          "real-LAP-old": "#d62728", "mpo-full": "#1f77b4",
+          "untrained": "#d55181", "real-LAP-w00": "#9ecae1", "real-LAP-w05": "#08519c",
+          "real-LAP-w01-seed0": "#3182bd"}
 
 
 def read_sto(path: Path) -> pd.DataFrame:
@@ -162,9 +187,22 @@ def rvc(wave: np.ndarray) -> np.ndarray:
 
 
 # ---------------------------------------------------------------- cross-human
-def cross_human(speed: float = 1.2, tol: float = 0.15):
+def cross_human(speed: float = 1.2, tol: float = 0.15, normalize_per_cycle: bool = False):
     """Per-channel: 22 subject-mean RVC waveforms, the n=231 pairwise-r
-    distribution, and the mean/std envelope across subjects."""
+    distribution, and the mean/std envelope across subjects.
+
+    normalize_per_cycle=False (default, F2's behavior): average a subject's
+    raw strides first, then peak-normalize the resulting mean -- provably
+    inert for F2 (Pearson r is scale-invariant), kept as-is so F2's already-
+    reported numbers never move.
+    normalize_per_cycle=True: peak-normalize each stride to its own peak
+    BEFORE averaging -- the standard EMG convention, and the one that
+    matters for match_fraction (kinematic_match.py's muscle-activity
+    domain), which tests absolute band membership and is NOT scale-
+    invariant. Verified 2026-09-14: on h2190/mpo this shifts some muscles'
+    match_fraction by only ~0.01-0.07, but one (ext_obl_r) by +0.37 -- a
+    blunted/jittery pooled peak under the old order was deflating the whole
+    waveform's normalization denominator."""
     with h5py.File(H5, "r") as f:
         subs = [s for s in f.keys() if s.startswith("AB")]
         channels = [c.decode() if isinstance(c, bytes) else str(c)
@@ -178,7 +216,12 @@ def cross_human(speed: float = 1.2, tol: float = 0.15):
                             for x in cond])
             keep = (modes == "treadmill") & (np.abs(spd - speed) <= tol)
             strides = g["strides"][keep]  # (n,101,11)
-            sub_means[s] = rvc(strides.mean(axis=0))  # (101,11)
+            if normalize_per_cycle:
+                peak = np.nanmax(np.abs(strides), axis=1, keepdims=True)  # (n,1,11)
+                peak = np.where(peak < 1e-9, 1.0, peak)
+                sub_means[s] = (strides / peak).mean(axis=0)  # (101,11)
+            else:
+                sub_means[s] = rvc(strides.mean(axis=0))  # (101,11)
 
     ch_idx = {c: i for i, c in enumerate(channels)}
     pair_r, envelope = {}, {}
@@ -200,12 +243,15 @@ def segment_cycles(contact: np.ndarray, thr: float, lo: int = 15, hi: int = 220)
             if lo <= rise[i + 1] - rise[i] <= hi]
 
 
-def pool_condition(run_dirs, muscles, min_rows=2500, prefer_ckpt=None):
+def pool_condition(run_dirs, muscles, min_rows=2500, prefer_ckpt=None,
+                    normalize_per_cycle: bool = False):
     """{model_muscle: mean RVC waveform (101,)} pooled over seeds x episodes.
     Only full-length (non-fall) episodes are used. prefer_ckpt: an int (same
     step for every run_dir), or a dict {run_dir: step} for the per-seed t*
     checkpoint (--tstar); if the exact run_checkpoint_<step> dir is missing,
-    falls back to the highest available."""
+    falls back to the highest available. normalize_per_cycle: see
+    cross_human()'s docstring -- same tradeoff, same default (off, preserves
+    F2 exactly)."""
     per_musc = {m: [] for m in muscles}
     n_ep = n_cyc = n_skip = 0
     for rd in run_dirs:
@@ -240,7 +286,13 @@ def pool_condition(run_dirs, muscles, min_rows=2500, prefer_ckpt=None):
     for m, chunks in per_musc.items():
         if not chunks:
             continue
-        out[m] = rvc(np.concatenate(chunks).mean(axis=0))
+        allc = np.concatenate(chunks)  # (n_cyc, 101)
+        if normalize_per_cycle:
+            peak = np.nanmax(np.abs(allc), axis=1, keepdims=True)
+            peak = np.where(peak < 1e-9, 1.0, peak)
+            out[m] = (allc / peak).mean(axis=0)
+        else:
+            out[m] = rvc(allc.mean(axis=0))
     return out, n_ep, n_cyc, n_skip
 
 
@@ -268,10 +320,19 @@ def load_tstar_map():
 
 def f2(body: str, speed: float, tol: float, regime: str = "onlyvel",
        tstar: bool = False, conditions: list[str] | None = None,
-       park_colors: bool = False, caption_order: bool = False):
+       park_colors: bool = False, caption_order: bool = False,
+       dark: bool = False, muscles: list[str] | None = None):
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
+
+    # Same dark/transparent deck convention as kinematics_combined_vs_backbones.py
+    # / kinetics_combined_vs_backbones.py -- prior=red, mpo=blue, dep-mpo=gold.
+    INK = "#e8e8e8"
+    INK_MUTED = "#9aa0a6"
+    HUMAN_FILL = "#c9cdd1"
+    HUMAN_LINE = "#e8e8e8"
+    DECK_COLORS = {"real-LAP": "#e64545", "mpo": "#6fa8dc", "dep-mpo": "#f2c14e"}
 
     runs = RUNS if regime == "onlyvel" else RUNS_FULL
     if body not in runs:
@@ -281,11 +342,15 @@ def f2(body: str, speed: float, tol: float, regime: str = "onlyvel",
         suffix += "_" + "-".join(conditions)
     if caption_order:
         suffix += "_captionorder"
+    if muscles:
+        suffix += "_" + "-".join(muscles)
     ckpt_pref = load_tstar_map() if tstar else CKPT_PREF.get(body)
 
     cmap = MODEL_MAPS[body]  # emg_channel -> model muscle (_r)
     order = CAPTION_ORDER if caption_order else PARK_ORDER
     channels = [c for c in order if c in cmap]
+    if muscles:
+        channels = [c for c in channels if PARK_ABBR[c] in muscles]
     chn, sub_means, ch_idx, pair_r, envelope = cross_human(speed, tol)
     subs = list(sub_means)
 
@@ -297,6 +362,8 @@ def f2(body: str, speed: float, tol: float, regime: str = "onlyvel",
     colors = dict(COLORS)
     if park_colors:
         colors.update(PARK_STYLE_COLORS)
+    if dark:
+        colors.update(DECK_COLORS)
     waves = {}
     for cd in conds:
         model_muscles = sorted({cmap[c] for c in channels})
@@ -314,6 +381,8 @@ def f2(body: str, speed: float, tol: float, regime: str = "onlyvel",
                            gridspec_kw={"height_ratios": [1.15, 1]})
     if ncol == 1:
         ax = ax.reshape(2, 1)
+    if dark:
+        fig.patch.set_alpha(0)
 
     for j, ch in enumerate(channels):
         i = ch_idx[ch]
@@ -339,39 +408,72 @@ def f2(body: str, speed: float, tol: float, regime: str = "onlyvel",
                               patch_artist=True, showfliers=False)
         for patch, c in zip(bp["boxes"], box_col):
             patch.set_facecolor(c)
-            patch.set_alpha(0.55)
+            patch.set_alpha(0.55 if not dark else 0.75)
         for med in bp["medians"]:
-            med.set_color("black")
+            med.set_color("black" if not dark else "#1a1a1a")
+        if dark:
+            for whisk in bp["whiskers"] + bp["caps"]:
+                whisk.set_color(INK_MUTED)
         lo5 = np.percentile(pair_r[ch], 5)
-        ax[0, j].axhspan(lo5, 1.0, color="#bdbdbd", alpha=0.18, zorder=0)
-        ax[0, j].set_title(f"{PARK_ABBR[ch]}  ({mm})", fontsize=9)
+        band_c = "#bdbdbd" if not dark else HUMAN_FILL
+        ax[0, j].axhspan(lo5, 1.0, color=band_c, alpha=0.18, zorder=0)
+        title_c = "black" if not dark else INK
+        ax[0, j].set_title(f"{PARK_ABBR[ch]}  ({mm})", fontsize=12, color=title_c)
         ax[0, j].set_xticks(box_pos)
-        ax[0, j].set_xticklabels(xt, rotation=40, ha="right", fontsize=6.5)
+        ax[0, j].set_xticklabels(xt, rotation=40, ha="right", fontsize=9.5,
+                                 color=(None if not dark else INK_MUTED))
         ax[0, j].set_ylim(-0.6, 1.02)
         if j == 0:
-            ax[0, j].set_ylabel("Pearson r vs human EMG")
+            ax[0, j].set_ylabel("Pearson r vs human EMG", color=title_c, fontsize=11)
+        if dark:
+            ax[0, j].set_facecolor("none")
+            for spine in ax[0, j].spines.values():
+                spine.set_visible(False)
+            ax[0, j].spines["bottom"].set_visible(True)
+            ax[0, j].spines["left"].set_visible(True)
+            ax[0, j].spines["bottom"].set_color(INK_MUTED)
+            ax[0, j].spines["left"].set_color(INK_MUTED)
+            ax[0, j].tick_params(axis="y", colors=INK_MUTED, labelsize=10)
 
         # ---- waveform row ----
         em, es = envelope[ch]
-        ax[1, j].fill_between(pct, em - es, em + es, color="#bdbdbd", alpha=0.55,
+        line_c = "#636363" if not dark else HUMAN_LINE
+        ax[1, j].fill_between(pct, em - es, em + es, color=band_c, alpha=(0.55 if not dark else 0.30),
                              label="human ±1SD")
-        ax[1, j].plot(pct, em, color="#636363", lw=1)
+        ax[1, j].plot(pct, em, color=line_c, lw=1)
         for cd in conds:
             wv = waves[cd].get(mm)
             if wv is not None:
-                ax[1, j].plot(pct, wv, color=colors[cd], lw=1.4, label=cd)
+                # display-only smoothing (Pearson r above is computed from the
+                # unsmoothed wv) -- cyclic wrap since 0%/100% of the gait cycle
+                # are the same instant.
+                wv_plot = savgol_filter(wv, window_length=21, polyorder=3, mode="wrap") \
+                    if len(wv) >= 21 else wv
+                ax[1, j].plot(pct, wv_plot, color=colors[cd], lw=1.4, label=cd)
         ax[1, j].set_ylim(-0.05, 1.05)
-        ax[1, j].set_xlabel("gait cycle [%]")
+        ax[1, j].set_xlabel("gait cycle [%]", color=title_c, fontsize=11)
         if j == 0:
-            ax[1, j].set_ylabel("activation (RVC-norm)")
-    ax[1, -1].legend(fontsize=6.5, loc="upper right")
+            ax[1, j].set_ylabel("activation (peak-normalized)", color=title_c, fontsize=11)
+        if dark:
+            ax[1, j].set_facecolor("none")
+            for spine in ax[1, j].spines.values():
+                spine.set_visible(False)
+            ax[1, j].spines["bottom"].set_visible(True)
+            ax[1, j].spines["left"].set_visible(True)
+            ax[1, j].spines["bottom"].set_color(INK_MUTED)
+            ax[1, j].spines["left"].set_color(INK_MUTED)
+            ax[1, j].tick_params(colors=INK_MUTED, labelsize=10)
+    leg = ax[1, -1].legend(fontsize=9.5, loc="upper right",
+                           labelcolor=(None if not dark else INK),
+                           framealpha=(None if not dark else 0.0))
     fig.suptitle(f"F2 — per-muscle activation vs experimental EMG   "
-                 f"[{body}, {regime} reward, ~{speed} m/s]", fontsize=12)
+                 f"[{body}, {regime} reward, ~{speed} m/s]", fontsize=14,
+                 color=(None if not dark else INK))
     fig.tight_layout(rect=(0, 0, 1, 0.96))
 
     OUT.mkdir(parents=True, exist_ok=True)
-    png = OUT / f"f2_{body}{suffix}.png"
-    fig.savefig(png, dpi=140)
+    png = OUT / f"f2_{body}{suffix}{'_dark' if dark else ''}.png"
+    fig.savefig(png, dpi=140, transparent=dark)
     csvp = OUT / f"f2_{body}{suffix}.csv"
     with open(csvp, "w", newline="") as fh:
         w = csv.DictWriter(fh, fieldnames=list(rows[0]))
@@ -385,6 +487,121 @@ def f2(body: str, speed: float, tol: float, regime: str = "onlyvel",
         for cd in conds:
             m = [r for r in rows if r["muscle"] == PARK_ABBR[ch] and r["condition"] == cd]
             line += f" {m[0]['r_mean']:10.3f}" if m else f" {'--':>10s}"
+        print(line)
+
+
+def f2_subject(body: str, speed: float, tol: float, ref_subject: str,
+                tstar: bool = False, conditions: list[str] | None = None,
+                caption_order: bool = False, dark: bool = False,
+                muscles: list[str] | None = None):
+    """Same per-muscle waveform comparison as f2(), but against ONE named
+    Camargo subject's own mean stride (e.g. AB06, the decoder's actual
+    source subject) instead of the pooled 22-subject band/boxplot -- "how
+    does this compare to the specific human whose EMG the decoder was
+    trained on," not "how does this compare to humans in general." No
+    boxplot (a single reference has no distribution to box), one Pearson r
+    per condition per muscle instead, printed and saved to CSV."""
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    INK, INK_MUTED, HUMAN_LINE = "#e8e8e8", "#9aa0a6", "#e8e8e8"
+    DECK_COLORS = {"real-LAP": "#e64545", "mpo": "#6fa8dc", "dep-mpo": "#f2c14e"}
+
+    if body not in RUNS:
+        raise SystemExit(f"no runs defined for {body}")
+    _, sub_means, ch_idx, _, _ = cross_human(speed, tol)
+    if ref_subject not in sub_means:
+        raise SystemExit(f"{ref_subject} not found; available: {sorted(sub_means)}")
+    ref = sub_means[ref_subject]
+
+    cmap = MODEL_MAPS[body]
+    order = CAPTION_ORDER if caption_order else PARK_ORDER
+    channels = [c for c in order if c in cmap]
+    if muscles:
+        channels = [c for c in channels if PARK_ABBR[c] in muscles]
+
+    ckpt_pref = load_tstar_map() if tstar else CKPT_PREF.get(body)
+    conds = conditions if conditions else list(RUNS[body])
+    unknown = [cd for cd in conds if cd not in RUNS[body]]
+    if unknown:
+        raise SystemExit(f"--conditions has unknown condition(s) for {body}: "
+                         f"{unknown}; available: {list(RUNS[body])}")
+    colors = dict(COLORS)
+    if dark:
+        colors.update(DECK_COLORS)
+
+    waves = {}
+    for cd in conds:
+        model_muscles = sorted({cmap[c] for c in channels})
+        w, n_ep, n_cyc, n_skip = pool_condition(RUNS[body][cd], model_muscles,
+                                                min_rows=MIN_ROWS.get(body, 2500),
+                                                prefer_ckpt=ckpt_pref)
+        waves[cd] = w
+        print(f"  {body:6s} {cd:10s}: {n_ep} full episodes ({n_skip} falls skipped), "
+              f"{n_cyc} gait cycles, {len(w)}/{len(model_muscles)} muscles")
+
+    pct = np.linspace(0, 100, N_GAIT_POINTS)
+    rows = []
+    ncol = len(channels)
+    fig, ax = plt.subplots(1, ncol, figsize=(3.1 * ncol, 3.6), squeeze=False)
+    if dark:
+        fig.patch.set_alpha(0)
+    title_c = INK if dark else "black"
+
+    for j, ch in enumerate(channels):
+        i = ch_idx[ch]
+        mm = cmap[ch]
+        a = ax[0, j]
+        refwave = ref[:, i]
+        a.plot(pct, refwave, color=(HUMAN_LINE if dark else "#636363"), lw=1.6,
+               label=f"{ref_subject} (human)")
+        for cd in conds:
+            wv = waves[cd].get(mm)
+            if wv is None:
+                continue
+            r = float(stats.pearsonr(wv, refwave)[0])
+            rows.append(dict(body=body, muscle=PARK_ABBR[ch], model_muscle=mm,
+                             condition=cd, ref_subject=ref_subject, r=round(r, 3)))
+            a.plot(pct, wv, color=colors[cd], lw=1.4, label=f"{cd} (r={r:.2f})")
+        a.set_title(f"{PARK_ABBR[ch]}  ({mm})", fontsize=12, color=title_c)
+        a.set_xlabel("gait cycle [%]", color=title_c)
+        if j == 0:
+            a.set_ylabel("activation (peak-normalized)", color=title_c)
+        a.legend(fontsize=7.5, loc="upper right",
+                 labelcolor=(INK if dark else None),
+                 framealpha=(0.0 if dark else None))
+        if dark:
+            a.set_facecolor("none")
+            for spine in a.spines.values():
+                spine.set_visible(False)
+            a.spines["bottom"].set_visible(True)
+            a.spines["left"].set_visible(True)
+            a.spines["bottom"].set_color(INK_MUTED)
+            a.spines["left"].set_color(INK_MUTED)
+            a.tick_params(colors=INK_MUTED, labelsize=9)
+    fig.suptitle(f"muscle activation vs {ref_subject}'s own EMG   [{body}, ~{speed} m/s]",
+                 fontsize=13, color=title_c)
+    fig.tight_layout(rect=(0, 0, 1, 0.94))
+
+    suffix = ("_tstar" if tstar else "") + ("_" + "-".join(conditions) if conditions else "")
+    if muscles:
+        suffix += "_" + "-".join(muscles)
+    OUT.mkdir(parents=True, exist_ok=True)
+    png = OUT / f"f2_{body}_vs_{ref_subject}{suffix}{'_dark' if dark else ''}.png"
+    fig.savefig(png, dpi=140, transparent=dark)
+    csvp = OUT / f"f2_{body}_vs_{ref_subject}{suffix}.csv"
+    with open(csvp, "w", newline="") as fh:
+        wtr = csv.DictWriter(fh, fieldnames=list(rows[0]))
+        wtr.writeheader()
+        wtr.writerows(rows)
+    print(f"wrote {png}\nwrote {csvp}")
+    print(f"\n{'muscle':8s} " + " ".join(f"{c:>10s}" for c in conds))
+    for ch in channels:
+        line = f"{PARK_ABBR[ch]:8s} "
+        for cd in conds:
+            m = [rr for rr in rows if rr["muscle"] == PARK_ABBR[ch] and rr["condition"] == cd]
+            line += f" {m[0]['r']:10.3f}" if m else f" {'--':>10s}"
         print(line)
 
 
@@ -522,15 +739,29 @@ def main():
     p.add_argument("--caption-order", action="store_true",
                    help="use Park et al. Fig 2's literal caption muscle order "
                         "(SOL GAS TA ST BF RF VM VL) instead of the reconstruction-elbow order")
+    p.add_argument("--dark", action="store_true",
+                   help="dark/transparent deck styling matching the kinematics/kinetics "
+                        "combined figures (prior=red, mpo=blue, dep-mpo=gold)")
+    p.add_argument("--muscles", default=None,
+                   help="comma-separated subset of PARK_ABBR codes to plot, e.g. "
+                        "ST,BF,VM,VL (default: every muscle mapped for --body)")
+    p.add_argument("--ref-subject", default=None,
+                   help="Camargo subject id (e.g. AB06) -- switches to f2_subject(): "
+                        "compare against that ONE subject's own EMG instead of the "
+                        "22-subject pooled band/boxplot")
     a = p.parse_args()
     speed = a.speed if a.speed is not None else (1.2 if a.regime == "onlyvel" else 1.3)
     tol = a.tol if a.tol is not None else (0.15 if a.regime == "onlyvel" else 0.25)
     conditions = a.conditions.split(",") if a.conditions else None
+    muscles = a.muscles.split(",") if a.muscles else None
     if a.figure == "ksweep":
         ksweep(speed, tol)
+    elif a.ref_subject:
+        f2_subject(a.body, speed, tol, a.ref_subject, a.tstar, conditions,
+                    a.caption_order, a.dark, muscles)
     else:
         f2(a.body, speed, tol, a.regime, a.tstar, conditions,
-           a.park_colors, a.caption_order)
+           a.park_colors, a.caption_order, a.dark, muscles)
 
 
 if __name__ == "__main__":

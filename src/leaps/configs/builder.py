@@ -111,7 +111,9 @@ def _gym_id(spec: RunSpec) -> str:
 def _decoder_paths(spec: RunSpec) -> tuple[str, str]:
     suffix = "" if spec.decoder_source.value == "pooled" else f"_{spec.decoder_source.value}"
     decoder_name = f"decoder_k{spec.dim_latent}{suffix}"
-    if spec.experiment_group == ExperimentGroup.FINAL_EXPERIMENTS:
+    if spec.experiment_group == ExperimentGroup.FINAL_EXPERIMENTS and spec.decoder_source == DecoderSource.AB06_CORRECTED:
+        decoder_dir = f"{spec.priors_root}/{decoder_name}"
+    elif spec.experiment_group == ExperimentGroup.FINAL_EXPERIMENTS:
         category = _DECODER_CATEGORY[spec.decoder_source]
         decoder_dir = f"{spec.synergy_root}_priors/{category}/{decoder_name}"
     else:

@@ -1,0 +1,17 @@
+name: leaps
+channels:
+  - defaults
+dependencies:
+  - python=3.9  # sconepy is built for 3.9
+  - pip
+  - pip:
+      - numpy==1.26.4
+      - scipy==1.13.1
+      - matplotlib==3.9.4
+      - scikit-learn==1.6.1
+      - torch==2.4.0
+      - pandas==2.2.2
+      - h5py==3.14.0
+      - pyyaml==6.0.2
+      - wandb==0.26.1
+      - pytest

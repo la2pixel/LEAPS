@@ -9,6 +9,8 @@ Usage:
     leaps train-strides --models StrideFlatVAE --latent-dims 8 --beta 0.01 --wandb
 """
 
+from __future__ import annotations
+
 import argparse
 import json
 import random

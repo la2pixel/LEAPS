@@ -28,8 +28,7 @@ def derive_run_name(spec: RunSpec) -> str:
     single name was pure noise. A non-default recipe there (net512,
     clip=True, ...) keeps the tokens AND gets physically routed to
     final_experiments/other/ by writer.config_path()/derive_tonic_name(),
-    so the main tree's names never need to carry these tokens at all --
-    2026-08-19, see project_final_experiments_20260815.md memory."""
+    so the main tree's names never need to carry these tokens at all."""
     final_experiments = spec.experiment_group == ExperimentGroup.FINAL_EXPERIMENTS
     parts = [spec.body]
     if spec.is_lap:

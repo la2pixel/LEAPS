@@ -88,3 +88,10 @@ baselines_DEPRL/
 # Apptainer / Singularity images
 *.sif
 *.sandbox
+
+# research log / thesis drafts (kept locally)
+notes/
+
+# released decoders are tracked despite *.pt / *.npz above
+!priors/**
+deps/

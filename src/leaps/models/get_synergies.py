@@ -8,9 +8,7 @@ lone spike frame barely moves its own stride's P99.
 """
 
 import argparse
-import os
 
-os.environ.setdefault("LEAPS_EMG_H5", "/home/nadinebadie/lalitha/datasets/emg_activations_v2.h5")
 
 import numpy as np
 import pandas as pd

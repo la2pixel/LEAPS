@@ -39,14 +39,16 @@ from pathlib import Path
 import numpy as np
 from scipy import stats
 
-from leaps.data.processing import time_normalize_stride
+from leaps.data import time_normalize_stride
 from leaps.scripts.biomech_fidelity import (RUNS, LIVE, MIN_ROWS, CKPT_PREF,
                                             read_sto, cross_human, load_tstar_map)
 
 OUT = Path(__file__).resolve().parents[3] / "results" / "gait_metrics"
-METHODS = {"real-LAP": "EMG prior", "mpo": "MPO", "dep-mpo": "DEP-MPO",
+METHODS = {"real-LAP-w00": "EMG prior w=0.0", "real-LAP": "EMG prior w=0.1",
+           "real-LAP-w05": "EMG prior w=0.5", "mpo": "MPO", "dep-mpo": "DEP-MPO",
            "null": "null"}
-MCOL = {"EMG prior": "#ff8a7a", "MPO": "#6fb8ff", "DEP-MPO": "#5fd39a",
+MCOL = {"EMG prior w=0.0": "#ffc2b8", "EMG prior w=0.1": "#ff8a7a",
+        "EMG prior w=0.5": "#c73e2e", "MPO": "#6fb8ff", "DEP-MPO": "#5fd39a",
         "null": "#8a8f98"}
 INK = "#e8e8e8"
 
@@ -97,18 +99,22 @@ def _norm_mean(sig, cyc):
     return S.mean(axis=0)
 
 
-def _ckpt_dir(rd):
+def _ckpt_dir(rd, tstar_map=None):
     root = LIVE.parent / rd if rd.startswith("not_used/") else LIVE / rd
     cks = sorted(root.glob("*/run_checkpoint_*"))
     if not cks:
         return None
-    want = CKPT_PREF.get(rd.split("/")[1]) if "/" in rd else None
+    want = None
+    if tstar_map is not None:
+        want = tstar_map.get(rd)
+    if want is None:
+        want = CKPT_PREF.get(rd.split("/")[1]) if "/" in rd else None
     pref = [c for c in cks if int(c.name.split("_")[-1]) == want] if want else []
     return pref[0] if pref else max(cks, key=lambda c: int(c.name.split("_")[-1]))
 
 
 # --------------------------------------------------------------- per condition
-def condition_metrics(body, run_dirs):
+def condition_metrics(body, run_dirs, tstar_map=None):
     min_gait = MIN_ROWS.get(body, 2500) * 0.4          # "enough gait to score"
     dur_all, dur_cap = [], []
     acc = {k: [] for k in ("speed", "cadence", "stride_t", "ds", "flight",
@@ -120,12 +126,14 @@ def condition_metrics(body, run_dirs):
                for leg in ("r", "l")}
 
     for rd in run_dirs:
-        ck = _ckpt_dir(rd)
+        ck = _ckpt_dir(rd, tstar_map)
         if ck is None:
             continue
         for sto in sorted(ck.glob("[0-9]*.sto")):
             ep = read_sto(sto)
             n = len(ep)
+            if n < 2:
+                continue
             t = ep["time"].to_numpy()
             dt = float(t[1] - t[0])
             dur = float(t[-1] - t[0])
@@ -306,7 +314,7 @@ def make_figure(rows):
     import matplotlib.pyplot as plt
 
     bodies = sorted({r["body"] for r in rows if r["body"] != "human"})
-    order = ["EMG prior", "MPO", "DEP-MPO", "null"]
+    order = ["EMG prior w=0.0", "EMG prior w=0.1", "EMG prior w=0.5", "MPO", "DEP-MPO", "null"]
     hu = next((r for r in rows if r["body"] == "human"), {})
     nrow = len(FIG_METRICS)
     fig, axes = plt.subplots(nrow, len(bodies), figsize=(3.1 * len(bodies),
@@ -349,14 +357,14 @@ def main():
     ap.add_argument("--bodies", nargs="+", default=["h0918", "h1622", "h2190"])
     a = ap.parse_args()
     OUT.mkdir(parents=True, exist_ok=True)
-    load_tstar_map()  # warm the checkpoint-selection cache / validate paths
+    tstar_map = load_tstar_map()
 
     rows = []
     for body in a.bodies:
         for cond, mlabel in METHODS.items():
             if cond not in RUNS.get(body, {}):
                 continue
-            r = condition_metrics(body, RUNS[body][cond])
+            r = condition_metrics(body, RUNS[body][cond], tstar_map)
             if r is None:
                 print(f"  {body} {mlabel}: no rollouts")
                 continue

@@ -24,7 +24,7 @@ import numpy as np
 
 from leaps.data.stride_dataset import load_strides, stride_train_val_split
 from leaps.envs.emg_mapping import MODEL_ACTUATORS
-from leaps.models.old_code import HausdorferAE
+from leaps.models.legacy_models import HausdorferAE
 from leaps.scripts.train_snapshot import strides_to_snapshots
 
 

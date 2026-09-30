@@ -1,7 +1,4 @@
-"""Camargo dataset metadata.
-
-Contains per-subject demographics, experiment protocol parameters, sensor
-specifications, and signal processing constants.
+"""Camargo dataset metadata
 """
 
 from __future__ import annotations
@@ -187,13 +184,9 @@ IMU_FILTER = FilterSpec(sample_rate=200, filter_type="lowpass", cutoff=100.0, or
 GON_FILTER = FilterSpec(sample_rate=1000, filter_type="lowpass", cutoff=20.0, order=4)
 
 #normalize emg
-
-# EMG is normalized to the average rectified amplitude during treadmill walking
-# at this reference speed, per subject. Chosen to reduce inter-subject variability
-# (near normal walking speed for the age group).
 EMG_NORMALIZATION_SPEED: float = 1.35  # m/s
 
-# ── Gait cycle ────────────────────────────────────────────────────────
+# Gait cycle 
 
 # Gait phase: 0–100% from heel strike to heel strike (right leg)
 # Heel strike detected from MoCap as zero linear velocity of heel marker

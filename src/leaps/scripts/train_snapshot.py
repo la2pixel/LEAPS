@@ -40,6 +40,8 @@ This is the first step of the LEAPS pipeline:
         --epochs 5 --batch-size 512
 """
 
+from __future__ import annotations
+
 import argparse
 import json
 import random
@@ -51,7 +53,7 @@ import torch
 
 from leaps.data.metadata import LEAPS_H5_PATH
 from leaps.data.stride_dataset import load_strides, stride_train_val_split
-from leaps.models.old_code import HausdorferAE
+from leaps.models.legacy_models import HausdorferAE
 
 
 # ── Argument parsing ──────────────────────────────────────────────────────────

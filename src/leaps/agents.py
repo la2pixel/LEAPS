@@ -20,8 +20,7 @@ deprl.custom_agents' own DEP-switch agents log the action actually taken --
 the replay buffer and critic must learn from what physics actually
 executed, not from the pre-perturbation proposal.
 
-Only correlation *structure* is borrowed, never EMG amplitude: see project
-memory (session 2026-07-30) for why absolute EMG magnitude has no
+Only correlation *structure* is borrowed, never EMG amplitude: absolute EMG magnitude has no
 principled reason to transfer from a human electrode to a simulated
 muscle's activation range, while cross-muscle correlation/timing does
 (confirmed directly against this project's own 22-subject dataset).
@@ -171,7 +170,7 @@ def emg_noise_factory(
     sweep and the mirror+higher-intervention_proba run all found real vs.
     null indistinguishable -- but every one of those tested only the
     cross-actuator half of what Lattice/gSDE (the related-work paper this
-    mechanism is modeled on, project memory "Related work" section) found
+    mechanism is modeled on) found
     to matter. Lattice's own reported benefit came from noise that is BOTH
     cross-actuator correlated AND temporally smooth (state-dependent,
     resampled once per rollout, not freshly i.i.d. at every single

@@ -1,13 +1,11 @@
 """Shared data/model/cache helpers for the get_synergy notebook.
 """
 
-import os
 import pickle
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
 
-os.environ.setdefault("LEAPS_EMG_H5", "/home/nadinebadie/lalitha/datasets/emg_activations_v2.h5")
 
 import numpy as np
 import torch
@@ -336,7 +334,7 @@ def prepare_training_arrays(seed: int = 42, val_fraction: float = 0.2, n_sub: in
     (n_strides, 101, 11) stride-major/frame-minor, so row i's phase is
     exactly (i % 101)/100 -- each stride is already time-normalized to 101
     points, 0-100% of the gait cycle, verified directly against the source
-    h5 (see memory).
+    h5.
     """
     strides, meta = load_strides(LEAPS_H5_PATH, modes=ALL_MODES, with_metadata=True)
     strides_train, strides_val, meta_train, meta_val = stride_train_val_split(

@@ -10,9 +10,7 @@ Subject choice: closest morphology match to the target SCONE model by
 """
 
 import argparse
-import os
 
-os.environ.setdefault("LEAPS_EMG_H5", "/home/nadinebadie/lalitha/datasets/emg_activations_v2.h5")
 
 import numpy as np
 import torch
@@ -20,7 +18,8 @@ import yaml
 
 from leaps.data.metadata import ALL_MODES, LEAPS_H5_PATH, SUBJECTS
 from leaps.data.stride_dataset import load_strides
-from leaps.synergy_common import CACHE_DIR, train_ae
+from leaps.paths import PRIORS_DIR
+from leaps.synergy_common import train_ae
 
 parser = argparse.ArgumentParser(description="Train a single-subject synergy decoder.")
 parser.add_argument("--subject", default="AB06", help="Camargo subject ID (default: AB06, closest match to h0918)")
@@ -104,7 +103,7 @@ for p in model.decoder.parameters():
     p.requires_grad = False
 
 suffix = f"_spm{args.strides_per_mode}_seed{args.seed}" if args.strides_per_mode is not None else ""
-decoder_dir = CACHE_DIR / f"decoder_k{args.k}_{args.subject}{suffix}{args.suffix}"
+decoder_dir = PRIORS_DIR / f"decoder_k{args.k}_{args.subject}{suffix}{args.suffix}"
 decoder_dir.mkdir(parents=True, exist_ok=True)
 torch.save(model.decoder.state_dict(), decoder_dir / "decoder.pt")
 
@@ -120,8 +119,7 @@ print(f"held-out R2 (this subject's own val split): {held_out_r2:.4f}")
 
 # Same reporting convention as the reference LAP repo's own
 # expert_demonstrations/*/results.yaml (fit-set vs held-out MSE/MAE) --
-# 2026-08-19, see project_leaps_overview.md memory for why this comparison
-# matters (their single-cycle recipe shows a ~99,000x fit/held-out MSE
+# This comparison matters because their single-cycle recipe shows a ~99,000x fit/held-out MSE
 # gap; ours, trained on many strides across all 4 modes instead of one
 # cycle, does not -- NOT a like-for-like difficulty comparison though,
 # their held-out set is the full episode including non-cyclic dynamics

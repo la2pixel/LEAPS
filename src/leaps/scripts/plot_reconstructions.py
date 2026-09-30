@@ -32,7 +32,7 @@ import numpy as np
 
 from leaps.data.metadata import EMG_CHANNEL_LABELS, EMG_CHANNELS
 from leaps.data.stride_dataset import load_strides, stride_train_val_split
-from leaps.evaluation.metrics import per_muscle_r2
+from leaps.models.metrics import per_muscle_r2
 from leaps.training.stride_trainer import (
     STRIDE_PYTORCH_MODELS,
     STRIDE_SKLEARN_MODELS,

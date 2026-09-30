@@ -32,9 +32,9 @@ import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
 from scipy.signal import butter, filtfilt, firwin
 
-from leaps.data.loaders import load_mat_table, discover_trials
 from leaps.data.metadata import EMG_CHANNELS, EMG_CHANNEL_LABELS
-from leaps.data.processing import (
+from leaps.data import (
+    load_mat_table, discover_trials,
     find_stride_intervals, segment_strides, time_normalize_stride,
     compute_normalization,
 )
