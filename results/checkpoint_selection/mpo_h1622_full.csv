@@ -1,0 +1,4 @@
+label,seed,t_star,score_at_tstar,final10,run_dir
+mpo_h1622_full,seed0,16000000,8744.9,4171.3,/media/calc_2/scone_results/live/lalitha/final_experiments/mpo/h1622/h1622_full_seed0
+mpo_h1622_full,seed1,16000000,8374.0,5006.1,/media/calc_2/scone_results/live/lalitha/final_experiments/mpo/h1622/h1622_full_seed1
+mpo_h1622_full,seed2,16000000,8187.8,8132.7,/media/calc_2/scone_results/live/lalitha/final_experiments/mpo/h1622/h1622_full_seed2

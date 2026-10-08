@@ -1,0 +1,3 @@
+label,seed,t_star,score_at_tstar,final10,run_dir
+null_h2190_onlyvelrew,seed0,6000000,371.3,235.9,/media/calc_2/scone_results/live/lalitha/final_experiments/no_lap/h2190/h2190_k6_w05_onlyvelrew_AB06_corrected_null_seed0
+null_h2190_onlyvelrew,seed1,6000000,479.2,301.8,/media/calc_2/scone_results/live/lalitha/final_experiments/no_lap/h2190/h2190_k6_w05_onlyvelrew_AB06_corrected_null_seed1

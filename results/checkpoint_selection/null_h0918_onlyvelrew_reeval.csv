@@ -1,0 +1,4 @@
+label,seed,t_star,score_at_tstar_curve,reeval_mean,reeval_sd,reeval_sem,fall_pct,reeval_min,episodes
+null_h0918_onlyvelrew,seed0,4000000,999.7,999.8,0.6,0.06,0.0,995.0,100
+null_h0918_onlyvelrew,seed1,12000000,999.5,999.3,2.0,0.2,0.0,983.0,100
+null_h0918_onlyvelrew,seed2,14000000,999.7,999.4,1.6,0.16,0.0,987.6,100

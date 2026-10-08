@@ -1,0 +1,3 @@
+label,seed,t_star,score_at_tstar,final10,run_dir
+mpo_h0918_full,seed1,8000000,9581.8,6361.9,/media/calc_2/scone_results/live/lalitha/final_experiments/mpo/h0918/h0918_full_seed1
+mpo_h0918_full,seed2,8000000,9608.0,5643.1,/media/calc_2/scone_results/live/lalitha/final_experiments/mpo/h0918/h0918_full_seed2

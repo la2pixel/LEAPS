@@ -1,0 +1,4 @@
+label,seed,t_star,score_at_tstar_curve,reeval_mean,reeval_sd,reeval_sem,fall_pct,reeval_min,episodes
+emg_lap_h1622_w01_full,seed0,20000000,8370.7,8386.5,1657.9,165.79,4.0,223.5,100
+emg_lap_h1622_w01_full,seed1,16000000,8149.3,8285.1,1137.9,113.79,2.0,233.6,100
+emg_lap_h1622_w01_full,seed2,20000000,8226.7,7654.1,2594.2,259.42,11.0,183.6,100

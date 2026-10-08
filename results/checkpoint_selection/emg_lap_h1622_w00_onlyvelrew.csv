@@ -1,0 +1,3 @@
+label,seed,t_star,score_at_tstar,final10,run_dir
+emg_lap_h1622_w00_onlyvelrew,seed0,8000000,980.6,961.9,/media/calc_2/scone_results/live/lalitha/final_experiments/emg_lap/h1622/h1622_k6_w00_onlyvelrew_AB06_corrected_seed0
+emg_lap_h1622_w00_onlyvelrew,seed1,20000000,936.5,937.7,/media/calc_2/scone_results/live/lalitha/final_experiments/emg_lap/h1622/h1622_k6_w00_onlyvelrew_AB06_corrected_seed1
