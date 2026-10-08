@@ -28,28 +28,12 @@ from leaps.envs.dep_content_prior import DepContentPrior
 from leaps.envs.emg_mapping import EMG_CHANNELS, EMGToMuscleMapper
 
 
-def build_decoder(dim_latent: int, dim_a: int = 11, hidden: int = None, cond_dim: int = 0) -> nn.Sequential:
-    """cond_dim widens the input layer for a conditioned decoder (speed_cond)."""
+def build_decoder(dim_latent: int, dim_a: int = 11, hidden: int = None) -> nn.Sequential:
     h = hidden or 2 * dim_latent
     return nn.Sequential(
-        nn.Linear(dim_latent + cond_dim, h), nn.Tanh(),
+        nn.Linear(dim_latent, h), nn.Tanh(),
         nn.Linear(h, dim_a), nn.Sigmoid(),
     )
-
-
-class _LengthReflex:
-    """Positive fiber-length feedback added to a_hat (state_feedback_gain)."""
-
-    def __init__(self, n_actuators: int, gain: float):
-        self.gain = gain
-        self._max_len = np.zeros(n_actuators)
-        self._min_len = np.ones(n_actuators) * 100.0
-
-    def step(self, fiber_lengths: np.ndarray) -> np.ndarray:
-        self._max_len = np.maximum(fiber_lengths, self._max_len)
-        self._min_len = np.minimum(fiber_lengths, self._min_len)
-        length_u = (fiber_lengths - self._min_len) / (self._max_len - self._min_len + 0.1)
-        return self.gain * length_u
 
 
 class LatentActionPriorWrapper(gym.ActionWrapper):
@@ -61,13 +45,9 @@ class LatentActionPriorWrapper(gym.ActionWrapper):
         self, env, model_name: str, decoder_path: Optional[str] = None, norm_path: Optional[str] = None,
         dim_latent: int = 6, residual_weight: float = 0.5, mirror_left: bool = False,
         null_prior: bool = False, mapped_residual_weight: Optional[float] = None,
-        untrained_decoder: bool = False, speed_cond: Optional[float] = None,
-        dep_content: bool = False,
+        untrained_decoder: bool = False, dep_content: bool = False,
         loosened_actuators: Optional[list[str]] = None, loosened_residual_weight: Optional[float] = None,
-        state_feedback_gain: float = 0.0,
     ):
-        if dep_content and speed_cond is not None:
-            raise ValueError("dep_content and speed_cond are mutually exclusive -- there is no decoder to condition")
         self.dep_content = dep_content
         super().__init__(env)
         actuator_names = [a.name() for a in env.unwrapped.model.actuators()]
@@ -79,8 +59,6 @@ class LatentActionPriorWrapper(gym.ActionWrapper):
         )
         self.n_actuators = len(actuator_names)
         self.dim_latent = dim_latent
-        self.state_feedback_gain = state_feedback_gain
-        self._reflex = _LengthReflex(self.n_actuators, state_feedback_gain) if state_feedback_gain > 0 else None
 
         # mapped mask from a null_prior=False mapper: with null_prior the
         # wrapper's own mapper has all-zero weights
@@ -117,16 +95,10 @@ class LatentActionPriorWrapper(gym.ActionWrapper):
             idx = [actuator_names.index(n) for n in loosened_actuators]
             self.residual_weight[idx] = loosened_residual_weight
 
-        # speed_cond: a fixed target speed in m/s, or "env" to read the env's
-        # target_vel at every reset. Needs a speed-conditioned decoder.
-        self.speed_cond = speed_cond
-        self._speed_cond_from_env = speed_cond == "env"
         if self.dep_content:
             self.dep_content_prior = DepContentPrior(self._mapped_mask, self.n_actuators)
-            self._speed_cond_tensor = None
         else:
-            cond_dim = 1 if speed_cond is not None else 0
-            self.decoder = build_decoder(dim_latent, cond_dim=cond_dim)
+            self.decoder = build_decoder(dim_latent)
             # untrained_decoder keeps the random init
             if not untrained_decoder:
                 self.decoder.load_state_dict(torch.load(decoder_path, map_location="cpu"))
@@ -140,23 +112,10 @@ class LatentActionPriorWrapper(gym.ActionWrapper):
             self.p01, self.p99 = norm["p01"], norm["p99"]
             self.z_lo, self.z_hi = norm["z_lo"], norm["z_hi"]
 
-            if speed_cond is not None:
-                self._speed_lo, self._speed_hi = float(norm["speed_lo"]), float(norm["speed_hi"])
-                init_speed = (
-                    float(self.env.unwrapped.target_vel) if self._speed_cond_from_env else float(speed_cond)
-                )
-                self._speed_cond_tensor = self._speed_tensor(init_speed)
-            else:
-                self._speed_cond_tensor = None
-
         # policy outputs: dim_latent (z) + n_actuators (a_full)
         self.action_space = gym.spaces.Box(
             low=0.0, high=1.0, shape=(dim_latent + self.n_actuators,), dtype=np.float32
         )
-
-    def _speed_tensor(self, speed: float) -> torch.Tensor:
-        speed_u = (speed - self._speed_lo) / (self._speed_hi - self._speed_lo)
-        return torch.tensor([[speed_u]], dtype=torch.float32, device="cpu")
 
     def _from_unit(self, x_u: np.ndarray) -> np.ndarray:
         return (x_u * (self.p99 - self.p01 + 1e-8) + self.p01).astype(np.float32)
@@ -176,20 +135,11 @@ class LatentActionPriorWrapper(gym.ActionWrapper):
         else:
             z = self._to_z_domain(z_u)
             with torch.no_grad():
-                z_t = torch.from_numpy(z)[None]
-                if self._speed_cond_tensor is not None:
-                    z_t = torch.cat([z_t, self._speed_cond_tensor], dim=-1)
-                emg_u = self.decoder(z_t)[0].numpy()
+                emg_u = self.decoder(torch.from_numpy(z)[None])[0].numpy()
             emg = self._from_unit(emg_u)
             # a_hat from the sigmoid output, not from emg in raw units: the
             # per-channel P99 scale differs up to 13x and would leave [0, 1]
             a_hat = self.mapper.map_emg_to_muscles(emg_u)
-
-        if self._reflex is not None:
-            fiber_lengths = self.env.unwrapped.model.muscle_fiber_length_array()
-            fb = self._reflex.step(fiber_lengths)
-            a_hat = a_hat.copy()
-            a_hat[self._mapped_mask] = np.clip(a_hat[self._mapped_mask] + fb[self._mapped_mask], 0.0, 1.0)
 
         # convex blend: a_full can pull a mapped muscle below a_hat as well as above it
         final_action = (1 - self.residual_weight) * a_hat + self.residual_weight * a_full
@@ -200,12 +150,6 @@ class LatentActionPriorWrapper(gym.ActionWrapper):
         self._last_emg = emg
 
         return final_action
-
-    def reset(self, **kwargs):
-        out = self.env.reset(**kwargs)
-        if self._speed_cond_from_env:
-            self._speed_cond_tensor = self._speed_tensor(float(self.env.unwrapped.target_vel))
-        return out
 
     def _diagnostics_post_clip(self, clip_lo: float, clip_hi: float) -> dict:
         """Prior/residual diagnostics on the values applied to the muscles,
