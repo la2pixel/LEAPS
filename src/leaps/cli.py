@@ -7,10 +7,6 @@ Data:
     preprocess          Build EMG HDF5 from raw Camargo .mat files
     eda                 EMG pipeline diagnostic plots (raw → rectified → strides)
 
-Training:
-    train-strides       Train stride-level AE (primary LEAPS model)
-    train-snapshot      Train HausdorferAE on per-frame snapshots
-
 Config generation:
     launch              Generate configs for the locked-in production set (k=6, w=0.5, unclipped)
     launch-explore      Generate configs for any RunSpec knob combination, sweeps
@@ -21,15 +17,6 @@ Evaluation (after RL training):
     gait-metrics        Gait-mechanics battery per policy
     biomech-fidelity    Muscle activations vs cross-subject human EMG
     kinematic-match     Joint kinematics vs the Camargo band
-
-Analysis:
-    plot                Plot reconstruction quality across models and latent dims
-    inspect-latent      Inspect trained model's latent space
-    inspect-reward      Visualize reward landscape before training
-
-Simulation:
-    visualize           Visualize EMG preprocessing pipeline
-    visualize-snapshot  Visualize snapshot AE reconstruction quality
 """
 
 import importlib
@@ -39,9 +26,6 @@ _COMMANDS: dict[str, tuple[str, str]] = {
     # Data
     "preprocess":          ("leaps.data.build_h5",                  "main"),
     "eda":                 ("leaps.scripts.eda_emg",                "main"),
-    # Training
-    "train-strides":       ("leaps.scripts.train_strides",          "main"),
-    "train-snapshot":      ("leaps.scripts.train_snapshot",         "main"),
     # Config generation
     "launch":              ("leaps.scripts.launch_locked",          "main"),
     "launch-explore":      ("leaps.scripts.launch_explore",         "main"),
@@ -51,13 +35,6 @@ _COMMANDS: dict[str, tuple[str, str]] = {
     "gait-metrics":        ("leaps.scripts.gait_metrics",           "main"),
     "biomech-fidelity":    ("leaps.scripts.biomech_fidelity",       "main"),
     "kinematic-match":     ("leaps.scripts.kinematic_match",        "main"),
-    # Analysis
-    "plot":                ("leaps.scripts.plot_reconstructions",   "main"),
-    "inspect-latent":      ("leaps.scripts.inspect_latent",         "main"),
-    "inspect-reward":      ("leaps.scripts.inspect_reward",         "main"),
-    # Simulation
-    "visualize":           ("leaps.scripts.visualize_emg",          "main"),
-    "visualize-snapshot":  ("leaps.scripts.visualize_snapshot_ae",  "main"),
 }
 
 
