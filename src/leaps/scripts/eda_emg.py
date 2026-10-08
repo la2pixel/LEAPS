@@ -1,23 +1,18 @@
-"""EMG preprocessing EDA — visual walkthrough of the full pipeline.
-THIS SHOULD BE A NOTEBOOK
+"""EMG preprocessing diagnostics, one figure per pipeline stage.
 
-Generates 6 figures saved as PNGs:
-  fig1_pipeline.png       — filter chain step-by-step for one trial (one muscle)
-  fig2_segmentation.png   — HeelStrike sawtooth + stride boundary overlay
-  fig3_strides.png        — time-normalized spaghetti plots for all 11 muscles
-  fig4_normalization.png  — inter-subject amplitude before vs after normalization
-  fig5_heatmap.png        — full N_strides × 101 heatmap per muscle
-  fig6_conditions.png     — mean stride profile by locomotion mode per muscle
+  fig1_pipeline.png       filter chain for one trial and muscle
+  fig2_segmentation.png   HeelStrike sawtooth and stride boundaries
+  fig3_strides.png        time-normalized strides, all 11 muscles
+  fig4_normalization.png  inter-subject amplitude before and after normalization
+  fig5_heatmap.png        N_strides x 101 heatmap per muscle
+  fig6_conditions.png     mean stride profile per locomotion mode
+  fig7_decoder_input.png  decoder-input scaling (divide by P99, clip to [0, 1])
 
-Figures 1–2 require raw .mat files (--data-root).
-Figures 3–6 require the processed HDF5 (--h5).
+Figures 1-2 need the raw .mat files (--data-root), 3-6 the processed h5
+(--h5), 7 also the decoder's norm.npz (--norm).
 
-Usage:
-    python -m leaps.scripts.eda_emg \\
-        --data-root $CAMARGO_DATA \\
-        --h5 $LEAPS_EMG_H5 \\
-        --subject AB09 \\
-        --output-dir outputs/eda
+    python -m leaps.scripts.eda_emg --data-root $CAMARGO_DATA --h5 $LEAPS_EMG_H5 \\
+        --subject AB06 --output-dir docs/eda
 """
 
 import argparse
@@ -26,17 +21,16 @@ from pathlib import Path
 
 import h5py
 import numpy as np
+import yaml
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-import matplotlib.gridspec as gridspec
 from scipy.signal import butter, filtfilt, firwin
 
-from leaps.data.metadata import EMG_CHANNELS, EMG_CHANNEL_LABELS
+from leaps.data.metadata import ALL_MODES, EMG_CHANNELS, EMG_CHANNEL_LABELS
 from leaps.data import (
     load_mat_table, discover_trials,
-    find_stride_intervals, segment_strides, time_normalize_stride,
-    compute_normalization,
+    find_stride_intervals, segment_strides,
 )
 
 # ── Style ──────────────────────────────────────────────────────────────────────
@@ -54,12 +48,6 @@ plt.rcParams.update({
 })
 
 MUSCLE_LABELS = [EMG_CHANNEL_LABELS[ch] for ch in EMG_CHANNELS]
-CONDITION_COLORS = {
-    "treadmill":   "#2196F3",
-    "levelground": "#4CAF50",
-    "ramp":        "#FF9800",
-    "stair":       "#9C27B0",
-}
 
 
 # ── Figure 1: filter chain pipeline ───────────────────────────────────────────
@@ -209,7 +197,6 @@ def fig_strides(strides: np.ndarray, speeds: np.ndarray, out_path: Path,
 
     ref_mask = np.abs(speeds - speed_ref) < 0.08
     strides_ref = strides[ref_mask]              # (n_ref, 101, 11)
-    all_strides = strides                        # (N, 101, 11)
 
     gait_pct = np.linspace(0, 100, 101)
     fig, axes = plt.subplots(3, 4, figsize=(14, 9))
@@ -233,7 +220,7 @@ def fig_strides(strides: np.ndarray, speeds: np.ndarray, out_path: Path,
         if ch >= 8:
             ax.set_xlabel("Gait cycle (%)")
         if ch % 4 == 0:
-            ax.set_ylabel("Activation [0,1]")
+            ax.set_ylabel("Normalized EMG")
 
     axes[11].axis("off")
     plt.tight_layout()
@@ -251,8 +238,7 @@ def fig_normalization(h5_path: Path, subjects: list[str], out_path: Path,
     show_channels = [0, 1, 2, 3, 5, 6]   # gastroc, tib, soleus, vastmed, rectfem, bicfem
     gait_pct = np.linspace(0, 100, 101)
 
-    # Collect per-subject mean stride profiles (pre-norm = normalized by their own norms,
-    # but we want to show the raw scale effect: multiply back by (max-min)+min per subject)
+    # per-subject mean stride profiles, before and after normalization
     raw_means = {ch: [] for ch in show_channels}   # before normalization (a.u. but comparable)
     norm_means = {ch: [] for ch in show_channels}  # after normalization [0,1]
 
@@ -286,7 +272,7 @@ def fig_normalization(h5_path: Path, subjects: list[str], out_path: Path,
                  fontsize=11, fontweight="bold")
 
     palette = plt.cm.tab20.colors
-    row_labels = ["Before norm.\n(mV envelope)", "After norm.\n[0, 1]"]
+    row_labels = ["Before norm.\n(mV envelope)", "After norm.\n(min-max)"]
 
     for col_idx, ch in enumerate(show_channels):
         for row, means in enumerate([raw_means[ch], norm_means[ch]]):
@@ -324,7 +310,6 @@ def fig_heatmap(strides: np.ndarray, speeds: np.ndarray, modes: np.ndarray,
         strides_s = strides_s[idx]
         speeds_s = speeds_s[idx]
 
-    gait_pct = np.linspace(0, 100, 101)
     fig, axes = plt.subplots(3, 4, figsize=(14, 9))
     axes = axes.flatten()
     fig.suptitle(f"Dataset Heatmap: {len(strides_s)} strides × 101 gait% × 11 muscles\n"
@@ -344,7 +329,7 @@ def fig_heatmap(strides: np.ndarray, speeds: np.ndarray, modes: np.ndarray,
             ax.set_ylabel("Stride index\n(sorted by speed)", fontsize=7.5)
 
     # Shared colorbar
-    fig.colorbar(im, ax=axes[:11].tolist(), label="Activation [0,1]",
+    fig.colorbar(im, ax=axes[:11].tolist(), label="Normalized EMG",
                  fraction=0.015, pad=0.04)
     axes[11].axis("off")
 
@@ -407,7 +392,7 @@ def fig_conditions(strides: np.ndarray, modes: np.ndarray, conditions: np.ndarra
         if ch >= 8:
             ax.set_xlabel("Gait cycle (%)")
         if ch % 4 == 0:
-            ax.set_ylabel("Activation [0,1]")
+            ax.set_ylabel("Normalized EMG")
 
     # Single legend outside
     handles, labels = axes[0].get_legend_handles_labels()
@@ -419,6 +404,63 @@ def fig_conditions(strides: np.ndarray, modes: np.ndarray, conditions: np.ndarra
     fig.savefig(out_path, bbox_inches="tight")
     plt.close(fig)
     print(f"Saved {out_path}")
+
+
+# ── Figure 7: decoder-input scaling ───────────────────────────────────────────
+
+def fig_decoder_input(strides: np.ndarray, p99: np.ndarray, out_path: Path) -> dict:
+    """Frame values per muscle before and after the decoder-input scaling
+    (same to_unit as train_single_subject_decoder). Returns the clipped fractions."""
+
+    scaled = strides / p99
+    unit = np.clip(scaled, 0.0, 1.0)
+    below = (scaled < 0).mean(axis=(0, 1))
+    above = (scaled > 1).mean(axis=(0, 1))
+
+    fig, axes = plt.subplots(3, 4, figsize=(14, 9))
+    axes = axes.flatten()
+    fig.suptitle("Decoder Input Scaling — min-max normalized vs ÷ P99, clipped to [0,1]",
+                 fontsize=11, fontweight="bold")
+    bins = np.linspace(-0.5, 3.0, 71)
+    for ch, ax in enumerate(axes[:11]):
+        ax.hist(strides[:, :, ch].ravel(), bins=bins, histtype="step", color="#555555", lw=1.0,
+                label="min-max normalized")
+        ax.hist(unit[:, :, ch].ravel(), bins=bins, histtype="step", color="#1565C0", lw=1.2,
+                label="÷ P99, clipped")
+        ax.axvline(p99[ch], color="#C62828", lw=0.8, ls="--", label="P99 divisor")
+        ax.set_yscale("log")
+        ax.set_title(f"{MUSCLE_LABELS[ch]}  (<0: {below[ch]:.1%}, >1: {above[ch]:.1%})", fontsize=8)
+        if ch >= 8:
+            ax.set_xlabel("Value")
+        if ch % 4 == 0:
+            ax.set_ylabel("Frames")
+    axes[10].legend(loc="upper right", fontsize=7)
+    axes[11].axis("off")
+    plt.tight_layout()
+    fig.savefig(out_path, bbox_inches="tight")
+    plt.close(fig)
+    print(f"Saved {out_path}")
+    return {
+        "p99_divisor": [round(float(v), 4) for v in p99],
+        "frac_clipped_below_0": [round(float(v), 4) for v in below],
+        "frac_clipped_above_1": [round(float(v), 4) for v in above],
+    }
+
+
+def count_segmented_strides(data_root: str, subject: str) -> dict:
+    """Heel-strike segments per mode before the stride exclusion in
+    process_mode_trials (speed-change and idle/transition strides)."""
+    trials = discover_trials(data_root, subjects=[subject], modes=ALL_MODES,
+                             sensors=["emg", "gcRight"]).get(subject, {})
+    counts = {}
+    for mode, files in trials.items():
+        n = 0
+        for emg_f, gc_f in zip(sorted(files.get("emg", [])), sorted(files.get("gcRight", []))):
+            emg_t, gc_t = load_mat_table(emg_f), load_mat_table(gc_f)
+            n += len(segment_strides(emg_t["Header"], emg_t["Header"],
+                                     find_stride_intervals(gc_t["Header"], gc_t["HeelStrike"])))
+        counts[mode] = n
+    return counts
 
 
 # ── Main ───────────────────────────────────────────────────────────────────────
@@ -439,7 +481,12 @@ def main() -> None:
                         help="Start time (s) for pipeline window (default: 5)")
     parser.add_argument("--t-end", type=float, default=20.0,
                         help="End time (s) for pipeline window (default: 20)")
+    parser.add_argument("--norm", default=None,
+                        help="Decoder norm.npz of --subject (required for fig7)")
+    parser.add_argument("--dpi", type=int, default=150,
+                        help="PNG resolution (default: 150)")
     args = parser.parse_args()
+    plt.rcParams["savefig.dpi"] = args.dpi
 
     out_dir = Path(args.output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -514,9 +561,7 @@ def main() -> None:
 
         # All subjects for fig4
         with h5py.File(h5_path, "r") as hf:
-            all_subjects = [k for k in hf.keys()
-                            if k not in ("activations", "stride_modes", "stride_subjects",
-                                         "stride_speeds", "stride_conditions")]
+            all_subjects = [k for k in hf.keys() if isinstance(hf[k], h5py.Group)]
 
         print(f"  Found {len(all_subjects)} subjects in HDF5")
         print("  Generating fig4_normalization.png ...")
@@ -545,6 +590,27 @@ def main() -> None:
         all_modes    = np.concatenate(all_modes_list, axis=0)
         all_conds    = np.concatenate(all_conds_list, axis=0)
         print(f"  Total: {all_strides.shape[0]} strides across {len(all_subjects)} subjects")
+
+        # stride counts, so the numbers behind the figures are readable without the h5
+        summary = {
+            "h5": h5_path.name,
+            "channels": list(EMG_CHANNELS),
+            "num_subjects": len(all_subjects),
+            "num_strides": int(all_strides.shape[0]),
+            "strides_per_mode": {str(m): int((all_modes == m).sum()) for m in np.unique(all_modes)},
+            "strides_per_subject": {s: int(len(x)) for s, x in zip(all_subjects, all_strides_list)},
+        }
+        if args.data_root and subj_strides is not None:
+            segmented = count_segmented_strides(args.data_root, args.subject)
+            summary["stride_exclusion"] = {"subject": args.subject, **{
+                m: {"segmented": n, "kept": int((subj_modes == m).sum())} for m, n in segmented.items()
+            }}
+        if args.norm and subj_strides is not None:
+            print("  Generating fig7_decoder_input.png ...")
+            summary["decoder_input_scaling"] = {"subject": args.subject, **fig_decoder_input(
+                subj_strides, np.load(args.norm)["p99"], out_path=out_dir / "fig7_decoder_input.png")}
+        with open(out_dir / "summary.yaml", "w") as f:
+            yaml.safe_dump(summary, f, sort_keys=False)
 
         print("  Generating fig5_heatmap.png ...")
         fig_heatmap(all_strides, all_speeds, all_modes,

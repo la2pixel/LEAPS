@@ -1,5 +1,4 @@
-"""Execute full preprocessing pipeline to store as .h5 file 
-"""
+"""Full preprocessing pipeline: raw Camargo EMG -> strides h5."""
 
 from __future__ import annotations
 
@@ -37,7 +36,7 @@ def build_emg_h5(
     HDF5 layout per subject (all arrays indexed by stride)::
 
         /{subject}.attrs          — age, gender, height_m, mass_kg
-        /{subject}/strides        — (n, 101, 11) float32
+        /{subject}/strides        — (n, 101, 11) float64
         /{subject}/modes          — (n,) str  — treadmill | levelground | ramp | stair
         /{subject}/speeds         — (n,) float64  — m/s for treadmill, NaN otherwise
         /{subject}/conditions     — (n,) str  — speed "1.35" | "slow/normal/fast" | angle | height
@@ -49,7 +48,7 @@ def build_emg_h5(
 
     Pooled across all subjects::
 
-        /activations        — (N*101, 11) float32 snapshot matrix for AE training
+        /activations        — (N*101, 11) float64 snapshot matrix for AE training
         /stride_modes       — (N,) str
         /stride_subjects    — (N,) str
         /stride_speeds      — (N,) float64

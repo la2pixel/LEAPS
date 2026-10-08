@@ -1,0 +1,95 @@
+h5: emg_activations_v2.h5
+channels:
+- gastrocmed
+- tibialisanterior
+- soleus
+- vastusmedialis
+- vastuslateralis
+- rectusfemoris
+- bicepsfemoris
+- semitendinosus
+- gracilis
+- gluteusmedius
+- rightexternaloblique
+num_subjects: 22
+num_strides: 41952
+strides_per_mode:
+  levelground: 7120
+  ramp: 10446
+  stair: 5497
+  treadmill: 18889
+strides_per_subject:
+  AB06: 1984
+  AB07: 2153
+  AB08: 1816
+  AB09: 1939
+  AB10: 1873
+  AB11: 1940
+  AB12: 1880
+  AB13: 1865
+  AB14: 1916
+  AB15: 1819
+  AB16: 1963
+  AB17: 1767
+  AB18: 1864
+  AB19: 1893
+  AB20: 1887
+  AB21: 1917
+  AB23: 1855
+  AB24: 1799
+  AB25: 2088
+  AB27: 1879
+  AB28: 2053
+  AB30: 1802
+stride_exclusion:
+  subject: AB06
+  treadmill:
+    segmented: 1065
+    kept: 961
+  levelground:
+    segmented: 359
+    kept: 303
+  ramp:
+    segmented: 741
+    kept: 468
+  stair:
+    segmented: 396
+    kept: 252
+decoder_input_scaling:
+  subject: AB06
+  p99_divisor:
+  - 0.8919
+  - 1.0313
+  - 1.0144
+  - 2.4657
+  - 1.7292
+  - 5.3675
+  - 0.8952
+  - 1.1312
+  - 1.3299
+  - 1.2921
+  - 1.2395
+  frac_clipped_below_0:
+  - 0.0765
+  - 0.0234
+  - 0.072
+  - 0.2008
+  - 0.1176
+  - 0.2791
+  - 0.0806
+  - 0.2685
+  - 0.0486
+  - 0.1172
+  - 0.2682
+  frac_clipped_above_1:
+  - 0.0449
+  - 0.0487
+  - 0.0453
+  - 0.0571
+  - 0.0588
+  - 0.0427
+  - 0.0675
+  - 0.0488
+  - 0.0372
+  - 0.0343
+  - 0.0797
