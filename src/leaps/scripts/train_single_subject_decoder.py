@@ -1,29 +1,36 @@
-"""Train a synergy-AE decoder on one Camargo subject instead of all 22 pooled.
+"""Train the EMG autoencoder on one Camargo subject and save its frozen decoder.
 
-Tests whether cross-subject pooling (get_synergies.py's approach) is what
-makes the frozen decoder uninformative for RL, by isolating that one
-variable: same architecture, same K, same modes, same normalization
-convention -- just one subject's data instead of 22 pooled together.
+Writes priors/decoder_k{k}_{subject}{suffix}/:
+    decoder.pt, encoder.pt   state dicts (the decoder is the prior used in RL)
+    norm.npz                 P99 divisors, latent range, whitening params
+    results.yaml             fit-set and held-out reconstruction error
+    ae_training.pdf          training and held-out loss per epoch
+    pca.pdf                  cumulative explained variance of the training frames
 
-Subject choice: closest morphology match to the target SCONE model by
-(height, mass) z-score distance against the Camargo population stats.
+Subject choice: AB06 is the closest match to the SCONE models by (height,
+mass) z-score distance against the Camargo population.
 """
 
 import argparse
 
-
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
 import numpy as np
 import torch
 import yaml
+from sklearn.decomposition import PCA
 
 from leaps.data.metadata import ALL_MODES, LEAPS_H5_PATH, SUBJECTS
 from leaps.data.stride_dataset import load_strides
 from leaps.paths import PRIORS_DIR
 from leaps.synergy_common import train_ae
 
+EPOCHS = 50
+
 parser = argparse.ArgumentParser(description="Train a single-subject synergy decoder.")
-parser.add_argument("--subject", default="AB06", help="Camargo subject ID (default: AB06, closest match to h0918)")
-parser.add_argument("--k", type=int, default=11, help="latent dim (default: 11, matching the hardconstraint11 test)")
+parser.add_argument("--subject", default="AB06", help="Camargo subject ID (default: AB06)")
+parser.add_argument("--k", type=int, default=6, help="latent dim (default: 6)")
 parser.add_argument("--val-fraction", type=float, default=0.2)
 parser.add_argument("--seed", type=int, default=0)
 parser.add_argument(
@@ -31,8 +38,8 @@ parser.add_argument(
     help="If set, subsample to N strides per mode (e.g. 1 for a Hausdorfer-scale "
          "minimal-data probe) instead of using every stride the subject has.",
 )
-parser.add_argument("--threshold", type=float, default=0.5, help="latent_norm_penalty dead zone")
-parser.add_argument("--scale", type=float, default=0.6, help="latent_norm_penalty ramp scale")
+parser.add_argument("--threshold", type=float, default=0.6, help="latent_norm_penalty dead zone")
+parser.add_argument("--scale", type=float, default=0.9, help="latent_norm_penalty ramp scale")
 parser.add_argument("--depth", type=int, default=1, help="hidden layers per side (SynergyAE)")
 parser.add_argument(
     "--suffix", default="", help="appended to the output dir name, e.g. '_corrected' "
@@ -43,7 +50,7 @@ args = parser.parse_args()
 if args.subject not in SUBJECTS:
     raise ValueError(f"{args.subject} not in Camargo SUBJECTS: {sorted(SUBJECTS)}")
 
-# --- data: one subject, all 4 modes, same pooling-across-modes as get_synergies.py ---
+# --- data: one subject, all 4 modes ---
 if args.strides_per_mode is not None:
     strides, meta = load_strides(
         LEAPS_H5_PATH, subjects=[args.subject], modes=ALL_MODES, with_metadata=True,
@@ -61,18 +68,13 @@ else:
     strides = load_strides(LEAPS_H5_PATH, subjects=[args.subject], modes=ALL_MODES)
 print(f"subject {args.subject}: {len(strides)} strides ({len(strides) * strides.shape[1]} frames)")
 
-# Random stride-level train/val split -- subject-level split (get_synergies.py's
-# default) is meaningless with n=1 subject, so this uses the same fallback path
-# stride_train_val_split() already has for when there's only one subject's worth
-# of metadata, just done explicitly here since we never pass subject metadata in.
+# random stride-level train/val split
 rng = np.random.default_rng(args.seed)
 idx = rng.permutation(len(strides))
 n_val = max(1, int(len(strides) * args.val_fraction))
 strides_val, strides_train = strides[idx[:n_val]], strides[idx[n_val:]]
 
-# --- per-subject P99 normalization, fit on this subject's train split only ---
-# Same convention as get_synergies.py (per-stride P99, averaged across the
-# training pool) but computed from this one subject instead of the pooled 22.
+# --- decoder-input scaling: per-channel mean of the per-stride P99, train split only ---
 stride_p99s = np.percentile(strides_train, 99, axis=1)
 global_divisors = stride_p99s.mean(axis=0) + 1e-8
 
@@ -84,28 +86,55 @@ def to_unit(strides_3d: np.ndarray) -> np.ndarray:
 X_train = to_unit(strides_train).reshape(-1, 11)
 X_val = to_unit(strides_val).reshape(-1, 11)
 
-# Match get_synergies.py's subsample size where possible (50k), but don't
-# oversample past what one subject actually has.
 n_sub = min(50_000, len(X_train))
 rng_sub = np.random.default_rng(0)
 sub_idx = rng_sub.choice(len(X_train), size=n_sub, replace=False)
 X_train_sub = X_train[sub_idx]
 print(f"training on {n_sub} frames (val: {len(X_val)} frames)")
 
-# --- train + freeze, same hyperparameters as get_synergies.py's frozen-decoder path ---
+decoder_dir = PRIORS_DIR / (
+    f"decoder_k{args.k}_{args.subject}"
+    + (f"_spm{args.strides_per_mode}_seed{args.seed}" if args.strides_per_mode is not None else "")
+    + args.suffix
+)
+decoder_dir.mkdir(parents=True, exist_ok=True)
+
+# --- PCA of the training frames: how many linear components the 11 channels need ---
+pca_cumvar = np.cumsum(PCA().fit(X_train_sub).explained_variance_ratio_)
+plt.figure(figsize=(4, 3))
+plt.plot(range(1, 12), pca_cumvar, marker="o", ms=3)
+plt.axvline(args.k, color="gray", ls="--", lw=0.8)
+plt.xlabel("Principal components")
+plt.ylabel("Cumulative explained variance")
+plt.tight_layout()
+plt.savefig(decoder_dir / "pca.pdf")
+plt.close()
+
+# --- train + freeze ---
+history = []
 model = train_ae(
-    X_train_sub, dim_latent=args.k, epochs=50, batch_size=512, seed=0,
+    X_train_sub, dim_latent=args.k, epochs=EPOCHS, batch_size=512, seed=0,
     threshold=args.threshold, scale=args.scale, depth=args.depth,
+    X_val=X_val, history=history,
 )
 model.eval()
 
 for p in model.decoder.parameters():
     p.requires_grad = False
 
-suffix = f"_spm{args.strides_per_mode}_seed{args.seed}" if args.strides_per_mode is not None else ""
-decoder_dir = PRIORS_DIR / f"decoder_k{args.k}_{args.subject}{suffix}{args.suffix}"
-decoder_dir.mkdir(parents=True, exist_ok=True)
 torch.save(model.decoder.state_dict(), decoder_dir / "decoder.pt")
+torch.save(model.encoder.state_dict(), decoder_dir / "encoder.pt")
+
+plt.figure(figsize=(4, 3))
+plt.plot(range(1, EPOCHS + 1), [h[0] for h in history], label="training (incl. latent penalty)")
+plt.plot(range(1, EPOCHS + 1), [h[1] for h in history], label="held-out reconstruction")
+plt.yscale("log")
+plt.xlabel("Epoch")
+plt.ylabel("Loss")
+plt.legend(fontsize=7)
+plt.tight_layout()
+plt.savefig(decoder_dir / "ae_training.pdf")
+plt.close()
 
 with torch.no_grad():
     train_hat, z_train = model(torch.from_numpy(X_train_sub))
@@ -117,13 +146,7 @@ ss_tot = ((X_val - X_val.mean(axis=0)) ** 2).sum()
 held_out_r2 = 1 - ss_res / ss_tot
 print(f"held-out R2 (this subject's own val split): {held_out_r2:.4f}")
 
-# Same reporting convention as the reference LAP repo's own
-# expert_demonstrations/*/results.yaml (fit-set vs held-out MSE/MAE) --
-# This comparison matters because their single-cycle recipe shows a ~99,000x fit/held-out MSE
-# gap; ours, trained on many strides across all 4 modes instead of one
-# cycle, does not -- NOT a like-for-like difficulty comparison though,
-# their held-out set is the full episode including non-cyclic dynamics
-# never in their training crop, ours is a same-distribution random split).
+# fit-set vs held-out error, as in the reference LAP repo's results.yaml
 train_mse = float(((X_train_sub - train_hat) ** 2).mean())
 train_mae = float(np.abs(X_train_sub - train_hat).mean())
 val_mse = float(((X_val - val_hat) ** 2).mean())
@@ -133,12 +156,8 @@ print(f"held-out MSE/MAE: {val_mse:.6e} / {val_mae:.6e}  (ratio vs fit-set: {val
 
 z_train = z_train.numpy()
 
-# Whitening params (see notebooks/autoencoder_loss.ipynb): the raw latent
-# dims are correlated (real synergies aren't independent), so an
-# axis-aligned [z_lo, z_hi] box wastes volume on combinations that never
-# occur in real data. whiten_A/whiten_mu let latent_env.py map the policy's
-# [-1,1] tanh output directly onto a rotated +/-3sigma box that matches the
-# real data's covariance instead: z = whiten_A @ z_u + whiten_mu.
+# whitening params of the training latents: z = whiten_A @ z_u + whiten_mu
+# would map [-1, 1] onto a rotated +/-3 sigma box (not used by the wrapper)
 whiten_mu = z_train.mean(axis=0)
 Sigma = np.cov(z_train, rowvar=False)
 eigvals, eigvecs = np.linalg.eigh(Sigma)
@@ -174,6 +193,7 @@ results = {
     "held_out_r2": float(held_out_r2),
     "held_out_vs_fit_mse_ratio": float(val_mse / train_mse),
     "whiten_volume_ratio": float(volume_ratio),
+    "pca_cumulative_variance": [round(float(v), 4) for v in pca_cumvar],
 }
 with open(decoder_dir / "results.yaml", "w") as f:
     yaml.dump(results, f, sort_keys=False)
