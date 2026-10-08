@@ -1,10 +1,8 @@
-"""Consolidate every arm's N=100 rollout re-eval into one thesis table + figure.
+"""Return table and figure from the N=100 re-evaluations.
 
-Reads results/checkpoint_selection/<label>{.csv,_reeval.csv} and emits:
-  results/checkpoint_selection/RETURN_TABLE.csv   -- one row per arm
-  results/checkpoint_selection/RETURN_TABLE.png   -- grouped by body, per-seed
-                                                     points + mean±sd, fall%.
-Re-run any time; it picks up new seeds automatically.
+Reads results/checkpoint_selection/<label>{.csv,_reeval.csv} and writes
+RETURN_TABLE.csv (one row per condition) and RETURN_TABLE.png (per-seed
+points, mean +/- SD and fall % per body).
 """
 import csv
 import glob
@@ -15,15 +13,18 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
-from leaps.paths import SCONE_LIVE_DIR
+from leaps.paths import RESULTS_DIR, SCONE_LIVE_DIR
 
-O = "LEAPS/results/checkpoint_selection"
+O = str(RESULTS_DIR / "checkpoint_selection")
 METHOD = {"emg_lap": "EMG prior", "mpo": "MPO", "depmpo": "DEP-MPO", "null": "null"}
 MCOL = {"EMG prior": "#d62728", "MPO": "#1f77b4", "DEP-MPO": "#2ca02c", "null": "#7f7f7f"}
 MORDER = ["EMG prior", "MPO", "DEP-MPO", "null"]
 
 
 def parse(label):
+    # "EMG prior" is w=0.1; the other weights only have their per-seed files
+    if label.startswith("emg_lap") and "_w01_" not in label:
+        return None
     for m in ("emg_lap", "depmpo", "mpo", "null"):
         if label.startswith(m):
             method = METHOD[m]
@@ -44,7 +45,6 @@ def main():
             continue
         method, body, regime = meta
         rev = list(csv.DictReader(open(f)))
-        sel = {r["seed"]: r for r in csv.DictReader(open(f"{O}/{label}.csv"))}
         means = [float(r["reeval_mean"]) for r in rev]
         falls = [float(r["fall_pct"]) for r in rev]
         seeds = [(r["seed"], float(r["reeval_mean"]), float(r["fall_pct"]),
@@ -118,16 +118,14 @@ def _label_for(method, body):
     return f"{pre}_onlyvelrew"
 
 
-# pastel, distinct on a dark slide; light "ink" for axes/text so the figure
-# can be dropped transparent onto a dark-themed deck.
+# pastel colors and light ink, for a transparent figure on a dark background
 PASTEL = {"EMG prior": "#ff8a7a", "MPO": "#6fb8ff",
           "DEP-MPO": "#5fd39a", "null": "#8a8f98"}
 INK = "#e8e8e8"
 
 
 def _lighten(hexc, f=0.55):
-    """Blend a hex colour f of the way toward white (so an alpha fill still
-    reads as *lighter* than a dark slide, not a shadow)."""
+    """Blend a hex color a fraction f toward white."""
     h = hexc.lstrip("#")
     r, g, b = (int(h[i:i + 2], 16) for i in (0, 2, 4))
     r, g, b = (int(c + (255 - c) * f) for c in (r, g, b))
@@ -136,12 +134,7 @@ def _lighten(hexc, f=0.55):
 
 _LIVE_FE = str(SCONE_LIVE_DIR / "lalitha/final_experiments")
 _LIVE_OLD = str(SCONE_LIVE_DIR / "lalitha/not_used/early_tests")
-# full-SCONE-reward runs: R4 / R2-under-full. Only MPO exists as a full-reward
-# backbone (no DEP-MPO-full, no null-full anywhere). h0918/h1622 are the
-# current recipe (k6, AB06_corrected decoder, noclip). h2190 was NEVER run at
-# the current recipe -- only the old July recipe (k11, generic pooled decoder,
-# clip, net256) under not_used/early_tests/, flagged in the panel title.
-# Stub/short runs are dropped by the 0.6*horizon filter.
+# full-reward runs: MPO is the only backbone. h2190 only exists with the old recipe.
 _FULL_DIRS = {
     "h0918": ({
         "EMG prior": [f"{_LIVE_FE}/emg_lap/h0918/h0918_k6_w01_full_AB06_corrected_seed{s}"
@@ -173,9 +166,8 @@ def _ma(x, w):  # edge-aware centred moving average
 
 def _one_curve_panel(body, method_dirs, horizon_m, ymax, ylabel, fname,
                      smooth=3, note=""):
-    """Mean-over-seeds ±1 SD learning curve for one body. method_dirs =
-    {method: [run_dir,...]}. Transparent, dark-slide ink. Convention =
-    LAP / DEP-RL / arXiv:2309.02976 (mean + SD band, no best-seed line)."""
+    """Learning curve for one body, mean +/- 1 SD over seeds.
+    method_dirs = {method: [run_dir, ...]}."""
     from leaps.scripts.select_checkpoint import load_curve
 
     hi = horizon_m * 1e6
@@ -236,8 +228,7 @@ def _one_curve_panel(body, method_dirs, horizon_m, ymax, ylabel, fname,
 
 
 def _curves_fig():
-    """onlyVelRew (4 methods, 3 bodies) + full SCONE reward (2 methods, 2
-    bodies). One transparent file per body per regime."""
+    """One file per body and reward regime."""
     for body in ["h0918", "h1622", "h2190"]:
         md = {}
         for m in MORDER:
@@ -254,8 +245,7 @@ def _curves_fig():
 
 
 def _trend_fig(rows):
-    """One cross-body view: return at t* and fall% vs body, a line per method.
-    onlyVelRew only (the common ceiling comparison)."""
+    """Return at t* and fall % against body, one line per method (onlyVelRew)."""
     ov = [r for r in rows if r["regime"] == "onlyVelRew"]
     bodies = ["h0918", "h1622", "h2190"]
     x = range(len(bodies))

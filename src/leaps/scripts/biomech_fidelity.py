@@ -1,14 +1,13 @@
-"""Biomechanical-fidelity figures vs real human data (Park et al. 2026 replicas).
+"""Muscle-activation fidelity against human EMG, after Park et al. 2026, Fig 2.
 
-F2 so far: per-muscle Pearson r between simulated muscle activation and
-experimental EMG envelopes, against a cross-human benchmark (22 Camargo
-subjects, pairwise, n=231). Box row + activation-waveform row, like their Fig 2.
+Per-muscle Pearson r between the simulated activation and the EMG envelope
+of each of the 22 Camargo subjects, against the cross-human benchmark
+(pairwise r, n=231). Box row + activation-waveform row.
 
-    python -m leaps.scripts.biomech_fidelity --figure f2 --body h1622
-    python -m leaps.scripts.biomech_fidelity --figure f2 --body h0918
+    python -m leaps.scripts.biomech_fidelity --figure f2 --body h1622 --tstar
 
-Data: emg_activations_v2.h5 (LEAPS_EMG_H5), current-recipe .sto rollouts under
-final_experiments/. Output: results/biomech_fidelity/.
+Data: LEAPS_EMG_H5 and the .sto rollouts under final_experiments/.
+Output: results/biomech_fidelity/.
 """
 from __future__ import annotations
 
@@ -24,30 +23,25 @@ from scipy.signal import savgol_filter
 
 from leaps.data import N_GAIT_POINTS, time_normalize_stride
 from leaps.envs.emg_mapping import MODEL_MAPS
-from leaps.paths import SCONE_LIVE_DIR
+from leaps.paths import RESULTS_DIR, SCONE_LIVE_DIR
 from leaps.data.metadata import LEAPS_H5_PATH
 
 H5 = LEAPS_H5_PATH
 LIVE = SCONE_LIVE_DIR / "lalitha/final_experiments"
-OUT = Path(__file__).resolve().parents[3] / "results" / "biomech_fidelity"
+OUT = RESULTS_DIR / "biomech_fidelity"
 
-# Park et al. Fig 2 muscle order; last one (gluteusmedius) is our extra.
+# Park et al. Fig 2 muscle order, plus gluteus medius
 PARK_ORDER = [
     "soleus", "gastrocmed", "tibialisanterior", "vastusmedialis",
     "vastuslateralis", "rectusfemoris", "bicepsfemoris", "semitendinosus",
     "gluteusmedius",
 ]
-# Their Fig 2's literal caption order (SOL GAS TA ST BF RF VM VL) -- for a
-# direct-replica plot, --caption-order uses this instead of PARK_ORDER above.
+# their caption order, used with --caption-order
 CAPTION_ORDER = [
     "soleus", "gastrocmed", "tibialisanterior", "semitendinosus",
     "bicepsfemoris", "rectusfemoris", "vastusmedialis", "vastuslateralis",
 ]
-# Their Fig 2 color convention: orange = independent, blue = synergistic.
-# Only applied to these condition names when --park-colors is passed; every
-# other condition (null, loosen-*) keeps its COLORS entry. w00/w01/w05 get a
-# light->dark blue gradient (increasing free-residual share), dep-mpo a
-# second warm tone distinct from mpo's orange.
+# their color convention (orange = independent, blue = synergistic), with --park-colors
 PARK_STYLE_COLORS = {
     "mpo": "#e08214", "dep-mpo": "#b35806",
     "real-LAP-w00": "#9ecae1", "real-LAP": "#3182bd", "real-LAP-w05": "#08519c",
@@ -58,8 +52,9 @@ PARK_ABBR = {
     "bicepsfemoris": "BF", "semitendinosus": "ST", "gluteusmedius": "GMED",
 }
 
-# run dirs per body -> {condition: [run_dir, ...]}. Only dirs that currently
-# hold run_checkpoint_*/*.sto; h2190 pending a pre-collapse (18M) eval pass.
+# {body: {condition: [run_dir, ...]}}: the thesis runs each analysis reads, relative to
+# final_experiments/. Edit this to evaluate other runs. Two runs keep an older name
+# (mpo h1622 seed1, dep-mpo h2190 seed1).
 RUNS: dict[str, dict[str, list[str]]] = {
     "h0918": {
         "real-LAP": ["emg_lap/h0918/h0918_k6_w01_onlyvelrew_AB06_corrected_seed0",
@@ -77,9 +72,7 @@ RUNS: dict[str, dict[str, list[str]]] = {
     "h1622": {
         "real-LAP": [f"emg_lap/h1622/h1622_k6_w01_onlyvelrew_AB06_corrected_seed{s}"
                      for s in (0, 1, 2, 3)],
-        # seed0 only -- the sole w=0.1 seed that walks rather than bounds.
-        # "real-LAP" above stays pooled (other figures depend on it); the
-        # biomechanics section reports walking gaits only.
+        # the one w=0.1 seed that walks rather than bounds
         "real-LAP-w01-seed0": ["emg_lap/h1622/h1622_k6_w01_onlyvelrew_AB06_corrected_seed0"],
         "real-LAP-w00": [f"emg_lap/h1622/h1622_k6_w00_onlyvelrew_AB06_corrected_seed{s}" for s in (0, 1)],
         "real-LAP-w05": [f"emg_lap/h1622/h1622_k6_w05_onlyvelrew_AB06_corrected_seed{s}" for s in (0, 1)],
@@ -112,15 +105,7 @@ RUNS: dict[str, dict[str, list[str]]] = {
     },
 }
 
-# h2190 collapses late (see project_h2190_mechanistic_findings) -- read the
-# pre-collapse 18M checkpoint, not the degraded final one.
-# --regime full: the 10M full-SCONE-reward runs (not the onlyVelRew ceiling
-# runs above) + the bare mpo backbone at full reward, for the clip-vs-noclip /
-# prior-vs-backbone gait-quality question. mpo-full is the only full-reward
-# backbone rollout that exists (old July recipe, net256, clip=True -- no
-# decoder, so recipe era is moot); there is no noclip mpo-full h0918 anywhere.
-# run dirs starting "not_used/" resolve against live/lalitha/, not
-# final_experiments/.
+# full-reward runs. Dirs starting "not_used/" resolve against live/lalitha/.
 RUNS_FULL: dict[str, dict[str, list[str]]] = {
     "h0918": {
         "real-LAP-noclip": [
@@ -135,13 +120,7 @@ RUNS_FULL: dict[str, dict[str, list[str]]] = {
             "not_used/early_tests/mpo/h0918/h0918_clip_net256_full_seed0",
         ],
     },
-    # h1622/h2190: NO current-recipe (k6, AB06_corrected) full-reward emg_lap
-    # run exists -- those configs are still commented out in run_scripts/
-    # queue.txt. The only full-reward rollouts are the old July early_tests
-    # ones: k11 + generic pooled decoder (pre the 08-16/08-17 decoder fix that
-    # mattered most for these two bodies), clip, net256, 20M. So "real-LAP-old"
-    # here is NOT the same arm as h0918's real-LAP-{noclip,clip}. mpo-full is
-    # likewise old net256. Read this pair as old-recipe-only.
+    # h1622/h2190: only old-recipe full-reward runs exist (k11, pooled decoder, clip)
     "h1622": {
         "real-LAP-old": [
             "not_used/early_tests/emg_lap/h1622/h1622_k11_w01_mirror_clip_net256_full_seed0",
@@ -161,8 +140,7 @@ RUNS_FULL: dict[str, dict[str, list[str]]] = {
 }
 
 CKPT_PREF: dict[str, int] = {"h2190": 18_000_000}
-# h2190 rarely sustains a full episode even at its best checkpoint -- relax the
-# fall filter so partial-gait segments are usable (flag n_cyc when reporting).
+# h2190 rarely completes an episode: relax the fall filter
 MIN_ROWS: dict[str, int] = {"h2190": 400}
 COLORS = {"real-LAP": "#d62728", "mpo": "#1f77b4", "dep-mpo": "#2ca02c",
           "null": "#7f7f7f", "loosen-GM": "#ff7f0e", "loosen-TA": "#9467bd",
@@ -188,21 +166,11 @@ def rvc(wave: np.ndarray) -> np.ndarray:
 
 # ---------------------------------------------------------------- cross-human
 def cross_human(speed: float = 1.2, tol: float = 0.15, normalize_per_cycle: bool = False):
-    """Per-channel: 22 subject-mean RVC waveforms, the n=231 pairwise-r
+    """Per channel: the 22 subject-mean waveforms, the n=231 pairwise-r
     distribution, and the mean/std envelope across subjects.
-
-    normalize_per_cycle=False (default, F2's behavior): average a subject's
-    raw strides first, then peak-normalize the resulting mean -- provably
-    inert for F2 (Pearson r is scale-invariant), kept as-is so F2's already-
-    reported numbers never move.
-    normalize_per_cycle=True: peak-normalize each stride to its own peak
-    BEFORE averaging -- the standard EMG convention, and the one that
-    matters for match_fraction (kinematic_match.py's muscle-activity
-    domain), which tests absolute band membership and is NOT scale-
-    invariant. Verified 2026-09-14: on h2190/mpo this shifts some muscles'
-    match_fraction by only ~0.01-0.07, but one (ext_obl_r) by +0.37 -- a
-    blunted/jittery pooled peak under the old order was deflating the whole
-    waveform's normalization denominator."""
+    normalize_per_cycle=False averages a subject's strides and then
+    peak-normalizes (enough for r, which is scale-invariant); True
+    peak-normalizes each stride first, needed for band-membership tests."""
     with h5py.File(H5, "r") as f:
         subs = [s for s in f.keys() if s.startswith("AB")]
         channels = [c.decode() if isinstance(c, bytes) else str(c)
@@ -245,13 +213,9 @@ def segment_cycles(contact: np.ndarray, thr: float, lo: int = 15, hi: int = 220)
 
 def pool_condition(run_dirs, muscles, min_rows=2500, prefer_ckpt=None,
                     normalize_per_cycle: bool = False):
-    """{model_muscle: mean RVC waveform (101,)} pooled over seeds x episodes.
-    Only full-length (non-fall) episodes are used. prefer_ckpt: an int (same
-    step for every run_dir), or a dict {run_dir: step} for the per-seed t*
-    checkpoint (--tstar); if the exact run_checkpoint_<step> dir is missing,
-    falls back to the highest available. normalize_per_cycle: see
-    cross_human()'s docstring -- same tradeoff, same default (off, preserves
-    F2 exactly)."""
+    """{model_muscle: mean waveform (101,)} pooled over seeds and non-fall
+    episodes. prefer_ckpt: one step for all run dirs, or {run_dir: step};
+    falls back to the highest checkpoint if that one is missing."""
     per_musc = {m: [] for m in muscles}
     n_ep = n_cyc = n_skip = 0
     for rd in run_dirs:
@@ -298,8 +262,7 @@ def pool_condition(run_dirs, muscles, min_rows=2500, prefer_ckpt=None,
 
 # ------------------------------------------------------------------------ F2
 def load_tstar_map():
-    """{relative run_dir: t* step} from every select_checkpoint.py CSV under
-    results/checkpoint_selection/ (the *.csv, not the *_reeval.csv)."""
+    """{relative run_dir: t* step} from the select_checkpoint CSVs."""
     seldir = OUT.parent / "checkpoint_selection"
     m = {}
     for csvp in seldir.glob("*.csv"):
@@ -326,8 +289,6 @@ def f2(body: str, speed: float, tol: float, regime: str = "onlyvel",
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
-    # Same dark/transparent deck convention as kinematics_combined_vs_backbones.py
-    # / kinetics_combined_vs_backbones.py -- prior=red, mpo=blue, dep-mpo=gold.
     INK = "#e8e8e8"
     INK_MUTED = "#9aa0a6"
     HUMAN_FILL = "#c9cdd1"
@@ -421,7 +382,7 @@ def f2(body: str, speed: float, tol: float, regime: str = "onlyvel",
         ax[0, j].set_title(f"{PARK_ABBR[ch]}  ({mm})", fontsize=12, color=title_c)
         ax[0, j].set_xticks(box_pos)
         ax[0, j].set_xticklabels(xt, rotation=40, ha="right", fontsize=9.5,
-                                 color=(None if not dark else INK_MUTED))
+                                 **({"color": INK_MUTED} if dark else {}))
         ax[0, j].set_ylim(-0.6, 1.02)
         if j == 0:
             ax[0, j].set_ylabel("Pearson r vs human EMG", color=title_c, fontsize=11)
@@ -444,9 +405,7 @@ def f2(body: str, speed: float, tol: float, regime: str = "onlyvel",
         for cd in conds:
             wv = waves[cd].get(mm)
             if wv is not None:
-                # display-only smoothing (Pearson r above is computed from the
-                # unsmoothed wv) -- cyclic wrap since 0%/100% of the gait cycle
-                # are the same instant.
+                # smoothed for display only; r uses the raw waveform
                 wv_plot = savgol_filter(wv, window_length=21, polyorder=3, mode="wrap") \
                     if len(wv) >= 21 else wv
                 ax[1, j].plot(pct, wv_plot, color=colors[cd], lw=1.4, label=cd)
@@ -463,9 +422,9 @@ def f2(body: str, speed: float, tol: float, regime: str = "onlyvel",
             ax[1, j].spines["bottom"].set_color(INK_MUTED)
             ax[1, j].spines["left"].set_color(INK_MUTED)
             ax[1, j].tick_params(colors=INK_MUTED, labelsize=10)
-    leg = ax[1, -1].legend(fontsize=9.5, loc="upper right",
-                           labelcolor=(None if not dark else INK),
-                           framealpha=(None if not dark else 0.0))
+    ax[1, -1].legend(fontsize=9.5, loc="upper right",
+                     labelcolor=(None if not dark else INK),
+                     framealpha=(None if not dark else 0.0))
     fig.suptitle(f"F2 — per-muscle activation vs experimental EMG   "
                  f"[{body}, {regime} reward, ~{speed} m/s]", fontsize=14,
                  color=(None if not dark else INK))
@@ -494,13 +453,8 @@ def f2_subject(body: str, speed: float, tol: float, ref_subject: str,
                 tstar: bool = False, conditions: list[str] | None = None,
                 caption_order: bool = False, dark: bool = False,
                 muscles: list[str] | None = None):
-    """Same per-muscle waveform comparison as f2(), but against ONE named
-    Camargo subject's own mean stride (e.g. AB06, the decoder's actual
-    source subject) instead of the pooled 22-subject band/boxplot -- "how
-    does this compare to the specific human whose EMG the decoder was
-    trained on," not "how does this compare to humans in general." No
-    boxplot (a single reference has no distribution to box), one Pearson r
-    per condition per muscle instead, printed and saved to CSV."""
+    """Same waveform comparison as f2(), against one named Camargo subject's
+    mean stride instead of the 22-subject band. One r per condition and muscle."""
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
@@ -605,19 +559,14 @@ def f2_subject(body: str, speed: float, tol: float, ref_subject: str,
         print(line)
 
 
-# ---------------------------------------------------------------- R8 k-sweep
-# h0918 only, emg_lap onlyVelRew, w=0.1 fixed, k in {2,4,6,8,11}, n=3 seeds.
-# Return is flat ~1000 on h0918 for every k (the R3 null) -- this asks whether
-# per-muscle EMG-timing fidelity (F2) or muscle effort move with latent dim.
+# k sweep: h0918, w=0.1, k in {2,4,6,8,11}, 3 seeds
 KSWEEP_KS = (2, 4, 6, 8, 11)
 KSWEEP_SEEDS = (0, 1, 2)
 KSWEEP_TMPL = "emg_lap/h0918/h0918_k{k}_w01_onlyvelrew_AB06_corrected_seed{s}"
 
 
 def _episode_effort(sto_path: Path):
-    """(mean|a|, rms a) over every *.activation column, dropping the 5% start/
-    stop transient. mean|a| matches gait_scorecard's activation_mean and the
-    R3 ~0.33 numbers; rms is the sqrt(<a^2>) 'effort' the outline writes."""
+    """(mean |a|, rms a) over all activation columns, without the first and last 5%."""
     ep = read_sto(sto_path)
     cols = [c for c in ep.columns if c.endswith(".activation")]
     if not cols:
