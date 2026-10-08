@@ -32,6 +32,6 @@ Conditions are named as in the thesis: `MPO` and `DEP-MPO` are the backbones, `E
 
 | file | content |
 |---|---|
-| `r2_vs_k.csv` | held-out reconstruction R² of PCA, ICA, NMF and the autoencoder for k = 1 to 11. |
+| `r2_vs_k.csv` | held-out reconstruction R² of PCA, ICA, NMF and the autoencoder (mean of five seeds) for k = 1 to 11. Delete the file to recompute it. The autoencoder value at k = 4 (0.73) does not reproduce: with this code two of its five seeds diverge to NaN, and the other three average 0.77. All other cells reproduce exactly. |
 | `per_muscle_reconstruction_r2.csv` | the same per EMG channel. |
 | `agonist_antagonist_by_k.csv` | how many of the three agonist-antagonist pairs (ankle, knee, hip) each method represents, per k. |
