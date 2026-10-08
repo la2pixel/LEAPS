@@ -1,8 +1,4 @@
-"""Pure RunSpec -> config.yaml dict builder
-
-Match field values against all the controller variations in config.yaml files.
-Also see LEAPS/tests/test_config_gen.py.
-"""
+"""RunSpec -> config.yaml dict. See tests/test_config_gen.py."""
 
 from __future__ import annotations
 
@@ -11,14 +7,7 @@ from pathlib import Path
 from leaps.configs.naming import derive_tags, derive_tonic_name, derive_wandb_group, derive_wandb_name
 from leaps.configs.spec import Category, DecoderSource, ExperimentGroup, RewardVariant, RunSpec
 
-# 2026-08-19: results/synergy/ reorganized into results/synergy_priors/{category}/
-# (single_subject / pooled_subjects / small_pooled -- see that dir's own
-# README) -- old flat results/synergy/decoder_k*/ paths kept as symlinks so
-# every already-launched config's baked-in decoder_path/norm_path string
-# still resolves. Scoped to final_experiments only, same discipline as
-# naming.py's clip/net-token suppression -- early_tests golden-file tests
-# assert exact string equality against real files with the OLD flat path
-# baked in, so those must keep generating the old path unchanged.
+# decoder layout under results/synergy_priors/ for non-released decoders
 _DECODER_CATEGORY = {
     DecoderSource.POOLED: "pooled_subjects",
     DecoderSource.AB06: "single_subject",
@@ -39,7 +28,7 @@ _ENV_ARGS_BY_VARIANT = {
     RewardVariant.ONLYVELREW: dict(
         vel_coeff=1, grf_coeff=0, joint_limit_coeff=0, nmuscle_coeff=0, smooth_coeff=0, self_contact_coeff=0
     ),
-    RewardVariant.GAUSSIANVEL: dict( #for now, not needed.
+    RewardVariant.GAUSSIANVEL: dict(
         vel_coeff=1, grf_coeff=0, joint_limit_coeff=0, nmuscle_coeff=0, smooth_coeff=0, self_contact_coeff=0
     ),
 }
@@ -51,25 +40,8 @@ _GYM_SUFFIX_BY_VARIANT = {
     RewardVariant.GAUSSIANVEL: "_gaussianVel",
 }
 
-# DEP+MPO control params. kappa lives in RunSpec (per-task-varied); everything
-# else here was a hand-typed guess that matched neither Table 4's arm-reaching
-# nor ostrich presets nor the human-run row -- replaced 2026-08-16 with the
-# real Table 4(c) "Human-run" values from the DEP-RL paper (arXiv:2206.00484),
-# verified against the actual PDF text, not the abstract/HTML (which omit the
-# appendix tables). intervention_length/intervention_proba are this repo's
-# names for the paper's HDEP/pswitch -- confirmed by exact match against the
-# repo's own faithful presets for arm-reaching/ostrich
-# (experiments/deprl_paper/{humanreacher_pointing,ostrich_dep_running}.json).
-# The paper's Table 4c also lists "force scale" (0.000054749) -- not ported,
-# because dep_controller.py in this fork has no force_scale parameter at all
-# (grepped, no match) -- nothing to wire it into.
-# Verified 2026-08-18 against the DEP-RL authors' own shipped configs for
-# these exact bodies (live martius-lab/depRL GitHub repo, e.g.
-# experiments/hyfydy/scone_walk_h1622.yaml, plus the Google-Drive-hosted
-# config.yaml behind load_baseline_sconewalk_{h0918,h1622,h2190}) -- not
-# inferred from a different task/embodiment's table entry. Superseded the
-# tau=26/bias_rate=0.004154/intervention_length=10/intervention_proba=0.01/
-# s4avg=0/time_dist=4 preset used before this date.
+# DEP parameters from the DEP-RL authors' shipped configs for these bodies
+# (martius-lab/depRL, experiments/hyfydy/scone_walk_*.yaml)
 _DEP_BLOCK_CONSTANTS = dict(
     bias_rate=0.002,
     buffer_size=200,
@@ -120,14 +92,7 @@ def _decoder_paths(spec: RunSpec) -> tuple[str, str]:
         decoder_dir = f"{spec.synergy_root}/{decoder_name}"
     decoder_path = f"{decoder_dir}/decoder.pt"
     norm_path = f"{decoder_dir}/norm.npz"
-    # Only enforced for final_experiments -- those configs are meant to be
-    # actually launched, so a missing decoder there is a real mistake worth
-    # failing loudly on. early_tests/ is frozen history (2026-08-15 reorg,
-    # never re-launched), and its decoders get cleaned up over time (e.g.
-    # the 2026-08-19 deletion of every pre-correction decoder except
-    # decoder_k6_AB06_corrected) -- golden-file reconstruction of an old
-    # config's *values* shouldn't depend on that config's training artifacts
-    # still existing on disk.
+    # early_tests configs are history: their decoders may no longer exist
     if spec.experiment_group == ExperimentGroup.FINAL_EXPERIMENTS and (
         not Path(decoder_path).exists() or not Path(norm_path).exists()
     ):
@@ -155,11 +120,7 @@ def _environment_expr(spec: RunSpec) -> str:
         return gym_expr
 
     parts = [gym_expr, f"model_name='{spec.body}'"]
-    # DEP_PRIOR never touches a decoder (a_hat comes from DEP's own C
-    # matrix, see envs/dep_content_prior.py) -- requiring a trained
-    # decoder_k{N} on disk just to launch this condition would be a
-    # pointless dependency, unlike untrained_decoder (which still needs
-    # real decoder files to exist, just never loads their content).
+    # the DEP prior has no decoder
     if spec.category != Category.DEP_PRIOR:
         decoder_path, norm_path = _decoder_paths(spec)
         parts.append(f"decoder_path='{decoder_path}'")
@@ -212,7 +173,7 @@ def build_config(spec: RunSpec) -> dict:
             "parallel": 20,
             "sequential": 10,
             "test_environment": None,
-            "trainer": "deprl.custom_trainer.Trainer(steps=int(2e7), epoch_steps=int(2e5), save_steps=int(2e6))",
+            "trainer": f"deprl.custom_trainer.Trainer(steps=int({spec.steps}), epoch_steps=int(2e5), save_steps=int(2e6))",
         },
         "wandb": {
             "project": "leaps",

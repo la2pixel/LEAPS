@@ -1,17 +1,10 @@
-"""Opinionated launcher for the locked-in production experiment set.
+"""Launcher for the main setting: k=6, w=0.5, unclipped, mirror on, AB06
+decoder, net256. Only body, reward variant, seeds and category are flags;
+use launch_explore.py for anything else.
 
-k=6, w=0.5, unclipped, mirror on, AB06 decoder (priors/), net256 -- the parameters
-locked in 2026-08-15 -- are hardcoded, not flags. Only asks for what
-actually varies run to run: which body models, which reward variants,
-which seeds, which category. For anything outside this locked set (other
-k/w/clip values, control arms) use launch_explore.py
-instead, which shares this same generator core.
-
-Usage:
     python -m leaps.scripts.launch_locked --body h0918 h1622 h2190 \\
         --reward-variant onlyvelrew --seeds 0 1 2 --dry-run
 
-    # generate for real, list them in a queue file:
     python -m leaps.scripts.launch_locked --body h0918 --seeds 0 1 \\
         --queue-out queue_locked.txt
 """
@@ -24,7 +17,7 @@ from pathlib import Path
 from leaps.configs.spec import BODIES, Category, DecoderSource, RewardVariant, RunSpec
 from leaps.scripts._launch_common import generate_and_queue
 
-# The 2026-08-15 lock-in. Not exposed as flags -- that's the point.
+# fixed, not flags
 _LOCKED_DIM_LATENT = 6
 _LOCKED_MAPPED_RESIDUAL_WEIGHT = 0.5
 _LOCKED_CLIP = False

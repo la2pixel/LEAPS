@@ -1,8 +1,4 @@
-"""Shared config-generation logic for launch_locked.py and launch_explore.py.
-
-Not registered in cli.py directly -- it's the core both launcher CLIs call
-after parsing their own argparse surface into a list of RunSpecs.
-"""
+"""Config generation shared by launch_locked.py and launch_explore.py."""
 
 from __future__ import annotations
 

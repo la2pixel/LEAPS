@@ -1,17 +1,9 @@
-"""Fully general launcher: one flag per RunSpec knob, sweeps the cross
-product of any multi-valued flags.
+"""General launcher: one flag per RunSpec knob, sweeps the cross product of
+multi-valued flags. launch_locked.py covers the main setting (k=6, w=0.5).
 
-For the locked-in production set (k=6, w=0.5, unclipped) use
-launch_locked.py instead, which has a narrower, harder-to-misuse surface.
-Use this one for the w/k sweeps, the clip ablation, and the
-untrained/null/DEP-content control arms.
-
-Usage:
-    # single run:
     python -m leaps.scripts.launch_explore --category emg_lap --body h0918 \\
         --k 6 --w 0.5 --clip false --seeds 0 --dry-run
 
-    # sweep: every combination of k x w x clip, seeds 0-1:
     python -m leaps.scripts.launch_explore --category emg_lap --body h0918 \\
         --k 2 6 11 --w 0.0 0.1 0.5 --clip false true --seeds 0 1 \\
         --queue-out queue_sweep.txt
@@ -50,9 +42,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--decoder-source", nargs="+", default=["AB06_corrected"], choices=[s.value for s in DecoderSource]
     )
-    p.add_argument("--dep-kappa", nargs="+", default=[1000], type=int)  # verified against authors' shipped configs, see RunSpec.dep_kappa
+    p.add_argument("--dep-kappa", nargs="+", default=[1000], type=int)
     p.add_argument("--net-size", nargs="+", default=[256], type=int)
     p.add_argument("--resume", type=_bool, default=True)
+    p.add_argument("--steps", default="2e7", help="training budget in environment steps")
     p.add_argument("--queue-out", type=Path, default=None)
     p.add_argument("--dry-run", action="store_true")
     p.add_argument("--overwrite", action="store_true")
@@ -93,6 +86,7 @@ def main() -> None:
             dep_kappa=dep_kappa,
             net_size=net_size,
             resume=args.resume,
+            steps=args.steps,
         )
         for category, body, reward_variant, seed, clip, k, w, residual_weight, mirror, mirror_mode, decoder_source, dep_kappa, net_size in combos
     ]

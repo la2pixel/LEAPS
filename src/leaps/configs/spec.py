@@ -1,5 +1,4 @@
-"""The RunSpec dataclass.
-"""
+"""The RunSpec dataclass."""
 
 from dataclasses import dataclass
 from enum import Enum
@@ -17,7 +16,7 @@ class Category(str, Enum):
     EMG_LAP = "emg_lap"
     NO_LAP = "no_lap"
     UNTRAINED_LAP = "untrained_lap"
-    DEP_PRIOR = "dep_prior"  # a_hat sourced from DEP's self-organized C matrix instead of the EMG decoder -- content-source control, not a competing controller
+    DEP_PRIOR = "dep_prior"  # a_hat from DEP's correlation matrix
 
 
 LAP_CATEGORIES = frozenset(
@@ -26,24 +25,20 @@ LAP_CATEGORIES = frozenset(
 
 
 class ExperimentGroup(str, Enum):
-    # 2026-08-15: baselines_DEPRL reorg -- everything before this date lives
-    # under early_tests/ (both here and in the media results tree), new runs
-    # default to final_experiments/.
+    # runs before 2026-08-15 live under early_tests/
     EARLY_TESTS = "early_tests"
     FINAL_EXPERIMENTS = "final_experiments"
 
-#for thesis, lets for now report full and onlyvel.
 class RewardVariant(str, Enum):
     FULL = "full"
     ONLYVELREW = "onlyvelrew"
     GAUSSIANVEL = "gaussianvel"
 
-#Decoder variants changed after feedback from 14.08 meeting
 class DecoderSource(str, Enum):
     POOLED = "pooled"
     AB06 = "AB06"
     AB20 = "AB20"
-    AB06_CORRECTED = "AB06_corrected"  # 2026-08-16: depth=1,threshold=0.6,scale=0.9 (locked recipe) + _to_z_domain fix
+    AB06_CORRECTED = "AB06_corrected"  # depth=1, threshold=0.6, scale=0.9
 
 
 @dataclass(frozen=True)
@@ -54,43 +49,27 @@ class RunSpec:
     reward_variant: RewardVariant = RewardVariant.FULL
     seed: int = 0
 
-    clip: bool = False  # -> env_args.clip_actions (True clips to [0,0.5], False to [0,1.0]), we need to test the 3rd option of no clip at all.
-    net_size: int = 256  # -> mpo_args.hidden_size iff != 256
-    #try with 512x512 
+    clip: bool = False  # -> env_args.clip_actions (True clips to [0, 0.5], False to [0, 1])
+    net_size: int = 256  # -> mpo_args.hidden_size
 
     # LAP-only knobs, ignored for category in (MPO, DEP_MPO).
     dim_latent: int = 6  # "k"
-    mapped_residual_weight: float = 0.5  # "w" -- NOT residual_weight, which stays 1.0 (what????)
+    mapped_residual_weight: float = 0.5  # "w"; residual_weight stays 1.0 for unmapped muscles
     residual_weight: float = 1.0
-    # per-actuator override on top of mapped_residual_weight -- e.g. h1622's
-    # glut_med_r/glut_med_l, which get a real EMG channel (unlike their
-    # add_mag antagonist) but are otherwise forced through the same tight
-    # blend as every other mapped muscle. () reproduces every existing
-    # config's behavior exactly.
+    # per-actuator override of mapped_residual_weight
     loosened_actuators: tuple[str, ...] = ()
     loosened_residual_weight: Optional[float] = None
     mirror_left: bool = True
-    mirror_mode: str = "static"  # phase-mirroring mechanism removed 2026-08-18 -- static is the only option now
+    mirror_mode: str = "static"
     decoder_source: DecoderSource = DecoderSource.POOLED
 
-    # DEP_MPO-only. 1000 -- verified 2026-08-18 directly against the DEP-RL
-    # authors' own shipped baseline configs for these exact bodies (both the
-    # live martius-lab/depRL GitHub repo and their Google-Drive-hosted
-    # pretrained checkpoints' config.yaml), not inferred from a table. The
-    # earlier 1896 default (DEP-RL paper Table 4c "human-run") was reasoned
-    # from a different task/embodiment's hyperparameter listing, never
-    # confirmed to match these bodies -- superseded once the actual shipped
-    # configs were checked.
+    # DEP-MPO only; value from the DEP-RL authors' shipped configs
     dep_kappa: int = 1000
 
     resume: bool = True
+    steps: str = "2e7"  # training budget, environment steps
 
-    # 2026-08-19: within final_experiments, builder._decoder_paths() resolves
-    # decoders under f"{synergy_root}_priors/{single_subject,pooled_subjects,
-    # small_pooled}/" instead of this flat root -- see that dir's README.
-    # This value itself is still used as-is for early_tests (unchanged, flat
-    # layout, kept for golden-file test fidelity) and as the string prefix
-    # the "_priors" suffix is appended to.
+    # non-released decoders; final_experiments looks under f"{synergy_root}_priors/"
     synergy_root: str = str(RESULTS_DIR / "synergy")
     # released decoders (AB06_corrected, one per k) live here instead
     priors_root: str = str(PRIORS_DIR)
@@ -126,11 +105,5 @@ class RunSpec:
 
     @property
     def is_default_recipe(self) -> bool:
-        """net256 + noclip -- the only recipe currently populating
-        final_experiments/{category}/... (verified 2026-08-19: all 55
-        configs there). Anything else (net512, clip=True, future
-        ablations) routes to final_experiments/other/ instead, via
-        writer.config_path()/naming.derive_tonic_name(), so the main
-        tree's names never need net/clip tokens at all -- see
-        naming.derive_run_name()."""
+        """net256 + noclip. Anything else goes to final_experiments/other/."""
         return self.net_size == 256 and not self.clip and not self.loosened_actuators
