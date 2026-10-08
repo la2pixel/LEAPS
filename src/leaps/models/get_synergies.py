@@ -1,10 +1,8 @@
 """Synergy extraction (PCA/ICA/NMF/AE) on all 4 modes.
 
-Normalization: each channel is divided by one global divisor, built by
-averaging every stride's own P99 (per stride, per channel) across the
-training pool. This keeps genuine amplitude differences between conditions
-(e.g. stair vs treadmill) while diluting single-frame artifacts, since a
-lone spike frame barely moves its own stride's P99.
+Each channel is divided by the mean of the per-stride P99 over the training
+pool, which keeps amplitude differences between conditions and is robust to
+single-frame artifacts.
 """
 
 import argparse
@@ -43,11 +41,7 @@ def to_unit(strides_3d: np.ndarray) -> np.ndarray:
 X_train = to_unit(strides_train).reshape(-1, 11)
 X_val = to_unit(strides_val).reshape(-1, 11)
 
-# Gait-phase encoding, free from the stride layout: reshape(-1, 11) above
-# flattens (n_strides, 101, 11) stride-major/frame-minor, so row i's phase
-# is exactly (i % 101)/100 -- verified directly against the source h5 (each
-# stride is time-normalized to 101 points, 0%-100% of the gait cycle).
-# sin/cos, not a raw fraction, avoids a fake discontinuity at 100%->0%.
+# gait phase of each flattened frame, as sin/cos
 def _phase_sincos(n_strides: int) -> np.ndarray:
     frac = np.tile(np.linspace(0.0, 1.0, 101, dtype=np.float32), n_strides)
     return np.stack([np.sin(2 * np.pi * frac), np.cos(2 * np.pi * frac)], axis=1)
@@ -67,9 +61,7 @@ rng_ica = np.random.default_rng(42)
 ica_sub_idx = rng_ica.choice(len(X_train_sub), size=min(20_000, len(X_train_sub)), replace=False)
 X_train_ica_sub = X_train_sub[ica_sub_idx]
 
-# ---------------------------------------------------------------------------
-# Sweep K=1..11 for all four methods, same training subsample, same held-out set
-# ---------------------------------------------------------------------------
+# sweep K=1..11, same training subsample and held-out set for all methods
 if not args.skip_sweep:
     K_VALUES = list(range(1, 12))
     rows = []
@@ -94,18 +86,14 @@ if not args.skip_sweep:
         X_hat = ica.inverse_transform(ica.transform(X_val))
         rows.append({"K": K, "method": "ICA", "held_out_R2": r2(X_val, X_hat)})
 
-        # AE, finalized architecture + penalty (see synergy_common.SynergyAE)
+        # AE
         model = train_ae(X_train_sub, dim_latent=K, epochs=50, batch_size=512, seed=0)
         model.eval()
         with torch.no_grad():
             val_hat, _ = model(torch.from_numpy(X_val))
         rows.append({"K": K, "method": "AE", "held_out_R2": r2(X_val, val_hat.numpy())})
 
-        # Same AE, conditioned on gait phase -- tests whether frame-level
-        # pooling (no cycle context) is what's capping reconstruction
-        # quality. Diagnostic only: the frozen decoder saved below for RL
-        # is unaffected, still trained phase-blind, until this comparison
-        # justifies wiring a phase source into the RL rollout itself.
+        # same AE conditioned on gait phase (diagnostic)
         model_phase = train_ae(X_train_sub, dim_latent=K, phase_train=phase_train_sub, epochs=50, batch_size=512, seed=0)
         model_phase.eval()
         with torch.no_grad():
@@ -119,14 +107,9 @@ if not args.skip_sweep:
     print()
     print(comparison_table)
 
-# ---------------------------------------------------------------------------
-# Per-mode breakdown at a fixed K, to check whether one mode is dominating
-# ---------------------------------------------------------------------------
+# per-mode breakdown at a fixed K
 K_CHECK = args.k_check
-# PCA/NMF/ICA can't have more components than the 11 EMG channels -- only
-# meaningful as a comparison baseline for K_CHECK <= 11. The AE has no such
-# limit (it's just an overcomplete autoencoder above K=11) and is the only
-# one actually frozen for RL below, so it's unaffected.
+# PCA/NMF/ICA need K <= 11 channels
 classical_methods_valid = K_CHECK <= 11
 if classical_methods_valid:
     pca_c = PCA(n_components=K_CHECK); pca_c.fit(X_train_sub)
@@ -135,9 +118,7 @@ if classical_methods_valid:
 ae_c = train_ae(X_train_sub, dim_latent=K_CHECK, epochs=50, batch_size=512, seed=0)
 ae_c.eval()
 
-# ---------------------------------------------------------------------------
-# Freeze the K_CHECK decoder for RL (leaps.envs.LatentActionPriorWrapper)
-# ---------------------------------------------------------------------------
+# freeze the K_CHECK decoder
 for p in ae_c.decoder.parameters():
     p.requires_grad = False
 
@@ -148,10 +129,7 @@ else:
     decoder_dir.mkdir(parents=True, exist_ok=True)
     torch.save(ae_c.decoder.state_dict(), decoder_dir / "decoder.pt")
 
-    # z_lo/z_hi: the actual per-dim latent range the decoder was trained on
-    # (encoder has no output activation, only the soft latent_norm_penalty --
-    # so this is roughly [-0.55, 0.55], not [0, 1]). LatentActionPriorWrapper
-    # rescales its policy's [0,1] z output into this range before decoding.
+    # z_lo/z_hi: latent range the decoder was trained on
     with torch.no_grad():
         _, z_train = ae_c(torch.from_numpy(X_train_sub))
     z_train = z_train.numpy()

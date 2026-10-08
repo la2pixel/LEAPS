@@ -28,32 +28,13 @@ def load_strides(
     conditions: list[str] | None = None,
     with_metadata: bool = False,
 ) -> np.ndarray | tuple[np.ndarray, dict[str, np.ndarray]]:
-    """Load stride sequences from HDF5 with option to filter by mode.
+    """Load stride sequences from the h5, optionally filtered.
 
-    Args:
-        path:       Path to HDF5 file (output of leaps preprocess).
-        subjects:   Subject IDs to load (default: all AB* groups in file).
-        modes:      Filter to specific modes, e.g. ["treadmill", "levelground"].
-                    Default: all modes.
-        conditions: Filter by condition label(s).
-                    Examples:
-                      ["1.20"]             — treadmill at 1.2 m/s
-                      ["slow", "normal"]   — levelground slow + normal
-                      ["5.2_up"]           — ramp 5.2° ascending only
-                      ["102", "127"]       — stair heights 102 mm and 127 mm
-                    Requires /{subject}/conditions dataset (regenerated HDF5).
-                    Default: all conditions.
-        with_metadata: If True, also return per-stride metadata arrays.
-
-    Returns:
-        If with_metadata is False:
-            strides, shape (n_strides, 101, 11).
-        If with_metadata is True:
-            (strides, metadata) where metadata is a dict with keys:
-                "modes"      — (n_strides,) str
-                "subjects"   — (n_strides,) str
-                "speeds"     — (n_strides,) float64, NaN for non-treadmill
-                "conditions" — (n_strides,) str  (if available in HDF5)
+    subjects, modes: default all. conditions: labels such as "1.20"
+    (treadmill speed), "slow", "5.2_up" (ramp), "102" (stair height in mm).
+    Returns strides (n_strides, 101, 11), and with with_metadata=True also a
+    dict of per-stride "modes", "subjects", "speeds" (NaN off the treadmill)
+    and "conditions".
     """
     all_strides: list[np.ndarray] = []
     all_meta_modes: list[str] = []
@@ -118,21 +99,11 @@ def load_strides(
 def stride_train_val_split(
     strides: np.ndarray,
     metadata: dict[str, np.ndarray] | None = None,
-    val_fraction: float = 0.2,  #so like 4 subjects
+    val_fraction: float = 0.2,
     seed: int = 42,
 ) -> tuple:
-    """Split stride data into train/val at the subject level.
-
-    Args:
-        strides: (n_strides, 101, 11) array.
-        metadata: Dict with "subjects" and optionally "modes" arrays.
-        val_fraction: Fraction of subjects held out for validation.
-        seed: Random seed.
-
-    Returns:
-        If metadata is None: (strides_train, strides_val)
-        If metadata is provided: (strides_train, strides_val, meta_train, meta_val)
-    """
+    """Subject-level train/val split. Returns (train, val), plus
+    (meta_train, meta_val) if metadata is given."""
     rng = np.random.default_rng(seed)
 
     if metadata is not None and "subjects" in metadata:

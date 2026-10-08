@@ -1,18 +1,15 @@
-"""AE vs linear synergy extraction (PCA/ICA/NMF) on lower-limb EMG.
+"""AE vs linear synergy extraction (PCA/ICA/NMF) on lower-limb EMG, after
+Spüler et al. 2016 (ICANN).
 
-Spüler et al. 2016 (ICANN) replication for the lower limb. Three questions:
-  A. reconstruction fit vs K  (does the AE fit better at low-mid K?)
-  B. agonist-antagonist capture vs K  (K=2..6; K=2-only was the notebook's TODO)
-  C. waveform reconstruction  (the paper's point: PCA gets the *weights* right
-     but the reconstructed muscle *waveforms* are worse than the AE's)
+  A. reconstruction R^2 vs K
+  B. agonist-antagonist pairs represented, vs K
+  C. waveform reconstruction
 
     python -m leaps.analysis.ae_vs_linear_synergies
 
-Outputs -> LEAPS/results/synergy_ae_vs_linear/  (publication-styled PNGs @ 300dpi)
+Outputs: results/synergy_ae_vs_linear/
 """
 from __future__ import annotations
-
-from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -23,10 +20,11 @@ import matplotlib.pyplot as plt
 from sklearn.decomposition import PCA, NMF, FastICA
 
 from leaps.envs.emg_mapping import EMG_CHANNELS
+from leaps.paths import RESULTS_DIR
 from leaps.synergy_common import prepare_training_arrays, train_ae, r2
 
 torch.set_num_threads(2)
-OUT = Path(__file__).resolve().parents[3] / "results" / "synergy_ae_vs_linear"
+OUT = RESULTS_DIR / "synergy_ae_vs_linear"
 OUT.mkdir(parents=True, exist_ok=True)
 
 AE_EPOCHS = 50
@@ -108,8 +106,7 @@ def opp_sign(W, ga, gb):
 
 
 # ============================ A: R^2 vs K ============================
-AE_SEEDS_TABLE = 5  # PCA/ICA/NMF are (near-)deterministic; AE training isn't --
-                    # average over seeds instead of reporting one run's noise.
+AE_SEEDS_TABLE = 5  # AE results are averaged over seeds
 
 
 def part_a(Xtr, Xva):
@@ -168,10 +165,7 @@ def part_a(Xtr, Xva):
     return tbl
 
 
-# ============ B: agonist-antagonist capture at matched LOW K ============
-# The advantage has to show at low K (that is where compression happens).
-# "best of K dims" gives high-K methods more lottery tickets, so the headline
-# comparison is at a fixed low K (K_MAIN) and joint with reconstruction fit.
+# ============ B: agonist-antagonist pairs at a fixed low K ============
 K_MAIN = 3
 
 
@@ -189,10 +183,8 @@ def _pairs_captured(W):
 
 
 def part_b(Xtr, Xva):
-    n_val = Xva.shape[0] // 101
 
-    # capture vs K (kept only to show NMF flatlines and AE reaches it early;
-    # NOT the headline -- see caveat in the figure).
+    # pairs represented vs K
     rows, W_by_k = [], {}
     for k in K_PAIRS:
         W_by_k[k], rec = fit_models(Xtr, k)
@@ -241,9 +233,7 @@ def part_b(Xtr, Xva):
     fig.savefig(OUT / "fig_fit_vs_antagonism_k3.png")
     plt.close(fig)
 
-    # ---- illustrative weights, per pair, at matched K=K_MAIN ----
-    # For each pair, show the one synergy dim (of K_MAIN -- all methods have the
-    # same number) that most clearly separates the two muscle groups by sign.
+    # per pair, the synergy dim that best separates the two muscle groups by sign
     PAIR_LBL = {"ankle": "ankle\n(TA vs plantarflex.)", "knee": "knee\n(quads vs hamstr.)",
                 "hip": "hip\n(glut med vs gracilis)"}
     fig, axes = plt.subplots(3, 4, figsize=(13, 7.2), sharex=True)

@@ -1,23 +1,13 @@
-"""Camargo EMG dataset: raw parsing, processing, metadata, torch dataset.
+"""Camargo EMG dataset: raw .mat -> rectified, gait-cycle-segmented,
+normalized strides -> h5. One file per stage, after the Camargo .m scripts:
 
-raw .mat -> rectified, gait-cycle-segmented, normalized strides -> HDF5.
-one file per pipeline stage, each named after (and cited against) the
-Camargo .m script it replicates:
-
-    metadata.py        <- channels, filter specs, subject demographics
-    raw.py              <- .mat parsing, no .m equivalent (pure I/O)
-    filters.py          <- rectify.m
-    strides.py           <- segment_gc.m, STRIDES.m (stride labeling)
-    normalize.py         <- getEMGNormalization.m
-    build_h5.py           <- STRIDES.m (outer loop) + the "leaps preprocess" CLI
-    stride_dataset.py     <- torch Dataset over the processed HDF5
-
-quick start:
-    python -m leaps.data.build_h5 --data-root /path/to/camargo --output out.h5
-
-build_emg_h5 isn't re-exported here (only from leaps.data.build_h5) --
-build_h5.py needs leaps.data.metadata, which would re-enter this file
-mid-init if this file also needed something from build_h5.py.
+    metadata.py         channels, filter specs, subject demographics
+    raw.py              .mat parsing
+    filters.py          rectify.m
+    strides.py          segment_gc.m, STRIDES.m
+    normalize.py        getEMGNormalization.m
+    build_h5.py         STRIDES.m outer loop, "leaps preprocess"
+    stride_dataset.py   torch Dataset over the h5
 """
 
 from leaps.data.metadata import SUBJECTS, SubjectInfo

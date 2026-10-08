@@ -1,46 +1,12 @@
-"""Experimental-match figure + table, Schumacher et al. 2023 (arXiv:2309.02976)
-"Natural and Robust Walking..." Table II style.
+"""Experimental-match table and figure, after Schumacher et al. 2023
+(arXiv:2309.02976), Table II.
 
-experimental_match = fraction of the gait cycle for which the mean simulated
-joint-angle trajectory lies within +/-1 SD of the experimental human band
-(hip, knee, ankle; both legs pooled). Their exact wording: "the fraction of
-the gait cycle for which the average simulated trajectory overlaps within
-the standard deviation of experimental data" -- positions only, no
-velocities, reference = Bovi et al. data bundled with SCONE (not available
-on this machine; we use 6 morphology-matched Camargo subjects instead, same
-methodology, different reference cohort -- their H0918/H1622/H2190 = 0.67/
-0.73/0.50 is a directionally comparable target, not a strict number-for-
-number replication).
-
-Velocity match_fraction is OUR extension, not in their paper -- they don't
-score velocities at all (checked directly against the paper text). Human
-velocity band = np.gradient of the raw (pre-time-normalization) Camargo
-angle trace at native 1000 Hz, then time-normalized the same way as angle.
-
-Joint-moment match_fraction (kinetics) and muscle-activity match_fraction
-are ALSO our extension -- not in their paper. Muscle activity reuses
-biomech_fidelity.py's cross_human()/pool_condition() (same per-channel
-human envelope F2 is built from) and scores it with the identical
-match_fraction band-membership test used for kinematics/GRF, so all 5
-domains (position, velocity, GRF, moment, muscle activity) land on the
-same [0,1] scale and are directly comparable -- reported side by side as
-separate columns, deliberately NOT averaged into one number: a blended
-score would hide exactly the per-domain/per-muscle dissociation this
-project's results are actually about (the same reason experimental_match.py
-was deleted and folded into this + gait_metrics + F2 on 2026-09-10 rather
-than kept as one all-in-one scorecard).
-
-Muscle-activity match_fraction calls cross_human()/pool_condition() with
-normalize_per_cycle=True (fixed 2026-09-14): match_fraction tests absolute
-band membership, unlike F2's Pearson r it is NOT invariant to normalization
-order, so it needs the standard per-cycle-then-average RVC convention
-rather than F2's average-then-normalize (which is fine for F2 only because
-correlation doesn't care). F2 itself is untouched by this fix -- verified
-the old order changes zero F2 r values, so f2()'s own pool_condition()/
-cross_human() calls keep the default normalize_per_cycle=False.
-
-Also plots joint angles + joint velocities + vertical GRF over the cycle,
-one line per method, human band shaded.
+match = fraction of the gait cycle for which the mean simulated trajectory
+lies within +/-1 SD of the human band (hip, knee, ankle; both legs pooled).
+The human band comes from six morphology-matched Camargo subjects, not the
+Bovi et al. data used in the paper. Beyond joint angles, the same test is
+applied to joint velocities, joint moments, vertical GRF and muscle activity
+(per-cycle normalized), reported as separate columns.
 
     python -m leaps.scripts.kinematic_match
     python -m leaps.scripts.kinematic_match --speed 1.35 --tol 0.25
@@ -66,11 +32,7 @@ from leaps.envs.emg_mapping import MODEL_MAPS
 from leaps.paths import RESULTS_DIR
 from leaps.data.metadata import CAMARGO_DATA_ROOT
 
-# full-reward regime: only h0918 has current-recipe full-reward data (h1622/h2190's
-# RUNS_FULL entries are old k11/generic-decoder recipe, not comparable -- see
-# biomech_fidelity.py's own RUNS_FULL comment). This is the one regime where a
-# genuine Schumacher et al. Table II comparison is possible (their naturalism
-# reward is the analog of our `full`, not `onlyvel`).
+# full reward: only h0918 has runs with the current recipe
 METHODS_FULL = {"mpo-full": "MPO (full)", "real-LAP-noclip": "EMG prior (full, noclip)",
                 "real-LAP-clip": "EMG prior (full, clip)"}
 MCOL_FULL = {"MPO (full)": "#1f77b4", "EMG prior (full, noclip)": "#d62728",
@@ -81,12 +43,8 @@ JOINTS = ["hip", "knee", "ankle"]
 GON = {"hip": "hip_sagittal", "knee": "knee_sagittal", "ankle": "ankle_sagittal"}
 MOMENT_COL = {"hip": "hip_flexion_r_moment", "knee": "knee_angle_r_moment", "ankle": "ankle_angle_r_moment"}
 POLICY_MASS_KG = 74.53140258789062  # same for h0918/h1622/h2190, confirmed via model.mass()
-# Camargo gon conventions (verified against raw data 2026-09-08): hip flexion +,
-# knee flexion -, ankle dorsiflexion + -- all three match SCONE's native signs,
-# so no flips. gon has a subject-specific DC offset (relative goniometers), so
-# the match metric aligns each simulated mean curve to the human mean by
-# removing the per-joint cycle-mean difference (compares shape/phase, not the
-# goniometer's absolute zero); raw offsets reported separately.
+# Camargo goniometer signs match SCONE's. The goniometers have a subject-specific
+# offset, so each simulated mean curve is aligned to the human mean before scoring.
 SCONE_SIGN = {"hip": 1.0, "knee": 1.0, "ankle": 1.0}
 ALIGN_OFFSET = True
 METHODS = {
@@ -103,9 +61,7 @@ MCOL = {
     "null": "#7f7f7f",
 }
 
-# Prior-ladder only -- no MPO/DEP-MPO backbones, adds untrained decoder.
-# Colors match plot_h0918_prior_curves.py's COLOR_BY_LABEL exactly, so the
-# same condition reads as the same color across every figure in the deck.
+# prior ladder without backbones; colors as in plot_h0918_prior_curves.py
 METHODS_VARIANTS = {
     "real-LAP-w00": "only prior (w=0.0)", "real-LAP": "prior + 0.1 residual",
     "real-LAP-w05": "prior + 0.5 residual", "null": "no prior (null)",
@@ -156,12 +112,7 @@ def build_human_band(speed, tol, force=False):
                 for j in JOINTS:
                     raw = _lowpass(g[GON[j]][m], GON_FS)
                     ang[j].append(time_normalize_stride(raw[:, None])[:, 0])
-                    # velocity = gradient of the RAW (pre-time-normalized) trace at
-                    # native sample rate, deg/s, then time-normalized the same way
-                    # -- differentiating after time-normalization would distort the
-                    # magnitude since the 101-point grid isn't evenly spaced in time.
-                    # Gradient taken on the already-filtered angle so velocity and
-                    # position stay consistent with each other.
+                    # velocity from the raw trace at native rate, then time-normalized
                     dv = np.gradient(raw, 1.0 / GON_FS)
                     vel[j].append(time_normalize_stride(dv[:, None])[:, 0])
                 mi = (idd["Header"] >= t0) & (idd["Header"] < t1)
@@ -189,16 +140,7 @@ def build_human_band(speed, tol, force=False):
 
 
 # -------------------------------------------------------------------- sim side
-KINEMATICS_LOWPASS_HZ = 20.0  # standard gait-analysis convention (matches the
-# already-defined-but-never-applied leaps.data.metadata.GON_FILTER spec).
-# Added 2026-09-18: raw sim (.sto, 100Hz) and raw human (gon, 1000Hz) signals
-# were both being pooled completely unfiltered -- the human band still looked
-# smooth only because it pools many more strides (noise averages out over
-# volume), not because it was filtered. Applied to the RAW per-cycle segment,
-# before time_normalize_stride, on both sides, same cutoff -- so neither side
-# is filtered more than the other. Cycles are 0.6-1.8s (60-180 samples at
-# 100Hz, 600-1800 at 1000Hz), comfortably long enough for a stable order-4
-# filtfilt at this cutoff on either sample rate.
+KINEMATICS_LOWPASS_HZ = 20.0  # applied to the raw cycles, sim and human alike
 
 
 def _lowpass(x, fs, cutoff=KINEMATICS_LOWPASS_HZ, order=4):
@@ -207,14 +149,8 @@ def _lowpass(x, fs, cutoff=KINEMATICS_LOWPASS_HZ, order=4):
 
 
 def seg_cycles(grf, dt):
-    """Heel-strike segmentation from vertical GRF, de-bounced the same way
-    gait_metrics.py's _hs() already is (fixed there 2026-08-26): a mid-stance
-    GRF ripple/double-bump can cross the 5%-of-max threshold twice in quick
-    succession, registering as a spurious extra heel strike. Without this,
-    every real ~0.8-1.1s stride gets seen as two ~0.4s pseudo-strides, both
-    outside the [0.6, 1.8]s window below -- silently zeroing out otherwise-
-    good data (found 2026-09-15: h1622 real-LAP-w00, both seeds, near-ceiling
-    episode scores, zero cycles detected before this fix)."""
+    """Heel strikes from vertical GRF, de-bounced so a mid-stance ripple
+    does not count as an extra strike."""
     on = grf > 0.05 * np.nanmax(grf)
     raw_rise = np.where(on[1:] & ~on[:-1])[0] + 1
     min_gap = int(0.4 / dt)
@@ -229,12 +165,7 @@ def seg_cycles(grf, dt):
 
 
 def pool_sim(run_dirs, tmap, min_rows=None):
-    """min_rows: fall cutoff. Was hardcoded to 900 (never used the shared
-    MIN_ROWS convention pool_condition/pool_torso use, 2500 by default) --
-    found 2026-09-18 while sanity-checking a suspiciously high h1622 ankle
-    match_fraction: with the 900 cutoff, 3 of seed0's 5 episodes (which F2's
-    stricter 2500 threshold correctly treats as falls) were being counted as
-    complete, pre-fall-truncated strides polluting the pooled cycles."""
+    """min_rows: episodes shorter than this count as falls and are dropped."""
     if min_rows is None:
         min_rows = 2500  # callers should pass MIN_ROWS.get(body, 2500) explicitly
     ang = {j: [] for j in JOINTS}
@@ -270,10 +201,7 @@ def pool_sim(run_dirs, tmap, min_rows=None):
                         ang[j].append(time_normalize_stride(s[:, None])[:, 0])
                         sv = _lowpass(np.degrees(ep[col + "_u"].to_numpy()[a:b]) * SCONE_SIGN[j], 1.0 / dt)
                         vel[j].append(time_normalize_stride(sv[:, None])[:, 0])
-                        # col already has the leg suffix baked in (e.g. "hip_flexion_r"),
-                        # matching real columns like "hamstrings_r.hip_flexion_r.moment"
-                        # -- do NOT append _{leg} again (that was the bug: produced
-                        # "..._r_r.moment", which matches nothing).
+                        # col already carries the leg suffix
                         mcols = [c for c in ep.columns
                                  if re.match(rf".+_{leg}\.{col}\.moment$", c)]
                         if mcols:
@@ -281,9 +209,7 @@ def pool_sim(run_dirs, tmap, min_rows=None):
                             mom[j].append(time_normalize_stride(net[:, None])[:, 0])
                     grf.append(time_normalize_stride(_lowpass(g[a:b], 1.0 / dt)[:, None])[:, 0])
     if n_ep == 0 or not grf or any(not ang[j] for j in JOINTS):
-        # n_ep counts non-falling episodes, but a full-length episode can still
-        # yield zero detected GRF cycles (e.g. a genuinely bad rollout) -- treat
-        # that the same as "no usable data" instead of crashing on np.stack.
+        # no gait cycle detected in any episode
         return None
     A = {j: np.stack(ang[j]) for j in JOINTS}
     V = {j: np.stack(vel[j]) for j in JOINTS}
@@ -302,23 +228,6 @@ def match_fraction(sim_mean, hmean, hsd):
     s = sim_mean - (sim_mean - hmean).mean() if ALIGN_OFFSET else sim_mean
     lo, hi = hmean - hsd, hmean + hsd
     return float(np.mean((s >= lo) & (s <= hi))), float((sim_mean - hmean).mean())
-
-
-def band_overlap_fraction(sim_mean, sim_sd, hmean, hsd):
-    """Symmetric alternative to match_fraction: fraction of the cycle where
-    the model's OWN +-1SD band overlaps the human's +-1SD band, instead of
-    only testing whether the model's mean line falls inside the human band
-    alone. Gives a model credit for its own plausible variability -- a model
-    with a wide-but-real spread that brackets the human band scores well
-    here even if its single mean line drifts outside the (narrow) human
-    band at some points, which is exactly the gap match_fraction can't see.
-    Same offset-alignment convention as match_fraction (removes constant
-    bias, doesn't affect either SD since a shift doesn't change spread)."""
-    s = sim_mean - (sim_mean - hmean).mean() if ALIGN_OFFSET else sim_mean
-    m_lo, m_hi = s - sim_sd, s + sim_sd
-    h_lo, h_hi = hmean - hsd, hmean + hsd
-    overlap = (m_lo <= h_hi) & (m_hi >= h_lo)
-    return float(np.mean(overlap))
 
 
 def main():
@@ -352,8 +261,7 @@ def main():
             ["h0918", "h1622", "h2190"], load_tstar_map()
     else:
         runs, methods, mcol, bodies, tmap = RUNS, METHODS, MCOL, ["h0918", "h1622", "h2190"], load_tstar_map()
-    # cross-human EMG envelope, same benchmark F2 uses -- computed once per body
-    # (channel set is body-specific via MODEL_MAPS), reused across conditions.
+    # cross-human EMG envelope, once per body
     emg_bands = {}
 
     rows = []
@@ -363,10 +271,7 @@ def main():
         channels = [c for c in CAPTION_ORDER if c in cmap]
         model_muscles = sorted({cmap[c] for c in channels})
         if body not in emg_bands:
-            # normalize_per_cycle=True: match_fraction tests absolute band
-            # membership (not scale-invariant like F2's Pearson r), so unlike
-            # F2 this domain needs the standard per-cycle-then-average
-            # normalization order -- see cross_human()'s docstring.
+            # band membership is not scale-invariant: normalize per cycle
             _, sub_means, ch_idx, pair_r, envelope = cross_human(
                 args.speed, args.tol, normalize_per_cycle=True)
             emg_bands[body] = (channels, cmap, envelope, ch_idx)
@@ -382,15 +287,10 @@ def main():
                   for j in JOINTS}
             off = {j: match_fraction(sd["ang"][j], band[f"{j}_mean"], band[f"{j}_sd"])[1]
                    for j in JOINTS}
-            # velocity match: same band-membership test, on angular velocity instead of
-            # angle. ALIGN_OFFSET doesn't apply here (Camargo gon has a per-subject DC
-            # offset on angle, not on its derivative) -- match_fraction's offset removal
-            # would just subtract the (near-zero) mean velocity difference, harmless.
+            # velocity match
             vf = {j: match_fraction(sd["vel"][j], band[f"{j}_vel_mean"], band[f"{j}_vel_sd"])[0]
                   for j in JOINTS}
-            # moment match: same test, on net per-DOF muscle moment (Nm/kg). Missing
-            # entirely for some conditions if their .sto lacks per-muscle .moment
-            # columns -- reported as None, not silently dropped to 0.
+            # moment match; None if the .sto has no per-muscle moment columns
             mom_f = {}
             for j in JOINTS:
                 if sd["mom"][j] is None:
@@ -400,8 +300,7 @@ def main():
                                               band[f"{j}_moment_sd"])[0]
             mom_vals = [v for v in mom_f.values() if v is not None]
             gm = match_fraction(sd["grf"], band["grf_mean"], band["grf_sd"])[0]
-            # muscle-activity match: same test, per mapped muscle, against the F2
-            # cross-human envelope -- the whole point of this extension.
+            # muscle-activity match, per mapped muscle
             channels, cmap, envelope, ch_idx = emg_bands[body]
             ckpt_pref = tmap if tmap else CKPT_PREF.get(body)
             waves, _, _, _ = pool_condition(runs[body][cond], model_muscles,
@@ -532,9 +431,9 @@ def main():
                 axg.axis("off")
         for ax in axes[-1]:
             ax.set_xlabel("gait cycle [%]", color=ink, fontsize=fs_label)
-        leg = axes[0, 0].legend(fontsize=fs_legend, loc="upper right",
-                                 frameon=False if is_dark else True,
-                                 labelcolor=ink if is_dark else None)
+        axes[0, 0].legend(fontsize=fs_legend, loc="upper right",
+                          frameon=False if is_dark else True,
+                          labelcolor=ink if is_dark else None)
         ttl_suffix = "prior ladder vs. real human band" if is_dark else "EMG prior vs backbones, at the selected checkpoint"
         if what == "ang":
             ttl = f"Joint angles + vertical GRF vs experimental human band (±1 SD, {len(SUBJ)} subjects)"

@@ -1,25 +1,20 @@
-"""Checkpoint-selection rule for the final RL tables (locked 2026-09-08).
+"""Checkpoint selection, applied identically to every method, body and seed.
 
-Rule, applied identically to every method/body/seed:
-  1. From log.csv take test/episode_score/mean, sampled every ~200k steps.
-  2. Candidate checkpoints = the saved ones: multiples of SAVE_STEP (2M) in
-     [2M, B], where B = the common horizon (min over seeds of last logged
+  1. From log.csv take test/episode_score/mean (one evaluation every ~200k steps).
+  2. Candidates are the saved checkpoints: multiples of SAVE_STEP (2M) in
+     [2M, B], B = the common horizon (minimum over seeds of the last logged
      step, capped at the nominal budget).
-  3. Score each candidate by the centred moving average of the test curve
-     over a window of W=5 evals (~+/-0.4M) around that step.
-  4. t*  = argmax candidate.  Each seed picks its own t*.
-  5. Report value = smoothed score at t*  (provisional; a fresh N=100 eval at
-     t* is the number that goes in the paper -- see --reeval, not done here).
-  6. Aggregate = mean +/- sd over seeds, individual seeds kept.
-  Secondary column "final10" = mean of the last 10 evals, for transparency
-  (shows the h2190 decline; nothing hidden).
+  3. Each candidate is scored by the centred moving average of the test curve
+     over W=5 evaluations around that step.
+  4. t* = best candidate, per seed.
+  5. The reported return is a fresh N=100 evaluation at t* (leaps reeval-checkpoint).
 
-Also writes a <label>.csv of (seed, t_star) that biomech_fidelity.py / the
-gait scorecard consume, so fidelity and return refer to the same policy.
+Writes <label>.csv with (seed, t_star, score at t*, mean of the last 10
+evaluations), which the evaluation scripts read.
 
-Usage:
-  python select_checkpoint.py RUNDIR [RUNDIR ...] --label emg_lap_h1622_w01_onlyvelrew
-each RUNDIR contains one <timestamp>/log.csv.
+    python -m leaps.scripts.select_checkpoint RUNDIR [RUNDIR ...] --label emg_lap_h1622_w01_onlyvelrew
+
+Each RUNDIR contains one <timestamp>/log.csv.
 """
 import argparse
 import csv
@@ -27,6 +22,8 @@ import glob
 import os
 import statistics
 import sys
+
+from leaps.paths import RESULTS_DIR
 
 SAVE_STEP = 2_000_000
 NOMINAL_BUDGET = 20_000_000
@@ -127,7 +124,7 @@ def main():
     ap.add_argument("--budget", type=int, default=None,
                     help="override common horizon B (steps)")
     ap.add_argument("--outdir",
-                    default="LEAPS/results/checkpoint_selection")
+                    default=str(RESULTS_DIR / "checkpoint_selection"))
     ap.add_argument("--plot", metavar="PATH", default=None,
                     help="write a per-seed diagnostic figure here")
     args = ap.parse_args()

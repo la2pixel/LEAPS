@@ -1,17 +1,8 @@
-"""Extract raw muscle-activation traces from a trained checkpoint's greedy
-rollout -- the data source for the SAR-style self-derived synergy control
-(Berg, Caggiano, Kumar 2023, arXiv:2307.03716): fit a synergy basis on a
-policy's OWN experience instead of external EMG, to isolate whether the
-value of a synergy prior comes from having ANY self-consistent low-dim
-structure, or specifically from real biological content.
+"""Muscle-activation traces from a trained checkpoint's greedy rollout, for
+fitting a synergy basis on the policy's own activations (as in SAR, Berg et
+al. 2023, arXiv:2307.03716).
 
-Checkpoint-loading sequence is copied from deprl/play.py::play() (not
-reinvented) -- that function is the existing, tested path for reloading a
-trained agent+env from a config.yaml + checkpoint, it just doesn't expose a
-hook for recording raw activations per step (it either writes .sto files
-via play_scone(), or renders via play_control_suite() -- neither returns
-the data this needs). This script does the same setup, then a plain
-rollout loop instead.
+Checkpoint loading follows deprl/play.py::play().
 """
 
 from __future__ import annotations
@@ -24,9 +15,7 @@ from deprl.utils import load_checkpoint
 
 
 def extract(checkpoint_dir: str, n_episodes: int, seed: int = 0) -> np.ndarray:
-    # load_checkpoint() string-concatenates "checkpoints" onto this path with
-    # no separator if it doesn't already end in one/"checkpoints" -- a quirk
-    # of the existing deprl utility, not something to fix there.
+    # load_checkpoint() appends "checkpoints" without a separator
     if not checkpoint_dir.endswith("/") and not checkpoint_dir.endswith("checkpoints"):
         checkpoint_dir = checkpoint_dir + "/"
     config, checkpoint_path, _ = load_checkpoint(checkpoint_dir, "last")
@@ -70,10 +59,7 @@ def extract(checkpoint_dir: str, n_episodes: int, seed: int = 0) -> np.ndarray:
         activations.append(environment.unwrapped.model.muscle_activation_array().copy())
         length += 1
 
-        # Same episode-boundary logic as play_scone() -- gaitgym.py's own
-        # `done` only fires on falling, never on reaching the horizon (see
-        # leaps/envs/adaptive_effort_reward.py's docstring for the full
-        # story on why this distinction matters).
+        # done only fires on falling, not at the horizon
         if done or length >= environment.max_episode_steps:
             episodes += 1
             if done and length < environment.max_episode_steps:

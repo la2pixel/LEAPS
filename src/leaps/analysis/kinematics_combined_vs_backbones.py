@@ -1,16 +1,13 @@
-"""One combined figure, Schumacher Fig.1 layout: rows = bodies, columns =
-hip/knee/ankle/GRF. Unlike Schumacher (1 line per panel, since they never
-compare methods), each panel here has 3 lines: best prior condition, MPO,
-DEP-MPO -- all best-seed-selected the same way, so it's a fair, credible
-3-way comparison in the same footprint as their single-method figure.
+"""Joint kinematics and GRF, rows = bodies, columns = hip / knee / ankle / GRF.
+Each panel: the EMG prior, MPO and DEP-MPO, each at its best seed, over the
+human band.
 
     python -m leaps.analysis.kinematics_combined_vs_backbones
 
-Output -> LEAPS/results/biomech_fidelity/KINEMATICS_COMBINED_VS_BACKBONES.png
+Output: results/biomech_fidelity/KINEMATICS_COMBINED_VS_BACKBONES.png
 """
 from __future__ import annotations
 
-from pathlib import Path
 
 import numpy as np
 import matplotlib
@@ -26,12 +23,7 @@ from leaps.paths import RESULTS_DIR
 OUT = RESULTS_DIR / "biomech_fidelity"
 COLS = JOINTS + ["grf"]
 COL_TITLES = {"hip": "hip", "knee": "knee", "ankle": "ankle", "grf": "vertical GRF (BW)"}
-# Fixed to w=0.1 only ("ours" everywhere else in the thesis) -- searching
-# across all 3 weights AND all seeds gave "prior" 6-8 candidates to pick a
-# max from vs. MPO/DEP-MPO's 2-3, an unfair selection-bias advantage
-# (more candidates to max over inflates the winner regardless of true
-# quality). Fixed here so all three methods search the same scope: best
-# seed within one, pre-decided condition. Flagged 2026-09-15.
+# prior fixed to w=0.1, so all three methods select over seeds only
 REAL_PRIOR_LADDER = ["real-LAP"]
 
 INK = "#e8e8e8"
@@ -46,8 +38,7 @@ TIE_TOL = 0.03  # match_fraction difference within this counts as a tie -- discl
 
 
 def best_seed_pooled(body: str, cond_list: list[str], band: dict) -> tuple[dict | None, str | None, float]:
-    """Best (condition, seed) by match_overall among cond_list -- same
-    disclosed, single-criterion selection used throughout."""
+    """Best (condition, seed) by match_overall among cond_list."""
     tmap = load_tstar_map()
     best_pooled, best_label, best_score = None, None, -1.0
     for cond in cond_list:

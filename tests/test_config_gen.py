@@ -1,10 +1,5 @@
-"""Golden-file regression tests for leaps.configs: the builder must keep
-reproducing real, already-launched config.yaml files exactly. Golden cases
-are deliberately picked from configs with the newer, non-drifted 10-key
-env_args (see builder.py's module docstring) -- some older emg_lap/no_lap
-"full" configs are missing self_contact_coeff/run, which the generator
-intentionally does not reproduce.
-"""
+"""Golden-file tests for leaps.configs: the builder must reproduce
+already-launched config.yaml files exactly."""
 
 from pathlib import Path
 
@@ -18,9 +13,7 @@ from leaps.paths import RUNS_DIR
 
 BASELINES_ROOT = RUNS_DIR
 
-# (RunSpec kwargs, path to a real, non-drifted config.yaml it should match)
-# All real files live under early_tests/ (2026-08-15 baselines_DEPRL reorg --
-# everything that existed before that date got grouped there).
+# (RunSpec kwargs, path of the config.yaml it should match), all under early_tests/
 _EARLY = dict(experiment_group=ExperimentGroup.EARLY_TESTS)
 CASES = [
     (
@@ -28,10 +21,6 @@ CASES = [
         "early_tests/mpo/h2190/h2190_clip_net256_onlyvelrew_seed1/config.yaml",
     ),
     (
-        # h0918/seed0/clip, not h2190/seed1 -- that file predates the
-        # 2026-08-18 DEP-block fix (verified against the authors' own
-        # shipped configs) and no longer matches what the builder produces.
-        # This one already used the verified preset.
         dict(_EARLY, category=Category.DEP_MPO, body="h0918", reward_variant=RewardVariant.ONLYVELREW, seed=0, clip=True),
         "early_tests/dep-mpo/h0918/h0918_clip_net256_onlyvelrew_seed0/config.yaml",
     ),
@@ -97,11 +86,7 @@ def test_builder_reproduces_real_config(spec_kwargs, real_path):
         pytest.skip("golden config only exists in the original run tree")
     generated = build_config(RunSpec(**spec_kwargs))
     real = yaml.safe_load((BASELINES_ROOT / real_path).read_text())
-    # wandb block is excluded: name/group/tags conventions were already
-    # inconsistent across the real 217 configs before this generator
-    # existed (61/217 missing tags entirely), and this generator
-    # deliberately establishes a new, internally consistent convention
-    # rather than reproducing that drift -- see naming.py.
+    # the wandb block is not compared: its conventions differ across old configs
     for key in ("env_args", "tonic", "DEP", "mpo_args"):
         if key in real or key in generated:
             assert generated.get(key) == real.get(key), f"{key} mismatch for {real_path}"
@@ -109,16 +94,14 @@ def test_builder_reproduces_real_config(spec_kwargs, real_path):
 
 
 def test_decoder_validation_raises_for_missing_k6_ab20():
-    """decoder_k6_AB20 does not exist on disk (confirmed 2026-08-15: only
-    decoder_k6, decoder_k6_AB06 exist at k=6; AB20 only exists at k=11).
-    The builder must fail loudly here, not write a broken config."""
+    """A decoder that does not exist on disk must fail, not write a broken config."""
     spec = RunSpec(category=Category.EMG_LAP, body="h0918", dim_latent=6, decoder_source=DecoderSource.AB20)
     with pytest.raises(FileNotFoundError, match="decoder_k6_AB20"):
         build_config(spec)
 
 
 def test_decoder_paths_released_priors_exist():
-    """Happy path for the validator: the released priors/ decoders resolve."""
+    """The released priors/ decoders resolve."""
     for k in (2, 4, 6, 8, 11):
         spec = RunSpec(category=Category.EMG_LAP, body="h0918", dim_latent=k, decoder_source=DecoderSource.AB06_CORRECTED)
         decoder_path, norm_path = _decoder_paths(spec)
@@ -127,11 +110,7 @@ def test_decoder_paths_released_priors_exist():
 
 
 def test_deprecated_precorrected_decoders_not_resolved_by_final_experiments():
-    """Every decoder except AB06_corrected was trained under the old
-    (pre-2026-08-16 threshold/scale, pre-2026-08-17 z-domain-fix) recipe
-    and moved out of the active synergy_priors/{single_subject,
-    pooled_subjects}/ into a deprecated/ sibling, 2026-08-19 -- final_experiments
-    must never resolve to one of these, even by an old/default DecoderSource."""
+    """final_experiments must not resolve to a deprecated decoder."""
     spec = RunSpec(category=Category.EMG_LAP, body="h0918", dim_latent=11, decoder_source=DecoderSource.POOLED)
     with pytest.raises(FileNotFoundError):
         _decoder_paths(spec)
@@ -162,9 +141,7 @@ def test_never_overwrites_existing_config(tmp_path):
 
 
 def test_w_tag_inversion():
-    """2026-08-15: w=0.5 is now the locked default and goes untagged;
-    w=0.1 (the old default) now gets tagged, inverted from the legacy
-    convention. See naming.py's _DEFAULT_MAPPED_RESIDUAL_WEIGHT."""
+    """w=0.5 is the default and untagged; w=0.1 is tagged."""
     from leaps.configs.naming import derive_tags
 
     default_w = RunSpec(category=Category.EMG_LAP, body="h0918", mapped_residual_weight=0.5)
@@ -174,18 +151,13 @@ def test_w_tag_inversion():
 
 
 def test_dep_prior_omits_decoder_and_sets_dep_content():
-    """DEP_PRIOR is brand new (2026-08-15) -- no real config file exists
-    yet to golden-file against, so this is a build-time correctness check,
-    not a fidelity check. It never touches a decoder (see
-    envs/dep_content_prior.py), so build_config must not require one to
-    exist on disk, unlike every other is_lap category."""
+    """The DEP prior never touches a decoder, so none is required on disk."""
     spec = RunSpec(category=Category.DEP_PRIOR, body="h0918", reward_variant=RewardVariant.ONLYVELREW, clip=False)
     env_expr = build_config(spec)["tonic"]["environment"]
     assert "decoder_path" not in env_expr
     assert "norm_path" not in env_expr
     assert "dep_content=True" in env_expr
-    # mirror_left=True is still harmlessly emitted (every category gets it),
-    # but mirror_mode is meaningless for DEP_PRIOR and must not appear.
+    # mirror_mode is meaningless for the DEP prior
     assert "mirror_mode" not in env_expr
 
 
@@ -200,15 +172,7 @@ def test_config_path_layout():
         seed=2,
     )
     path = config_path(spec)
-    # 2026-08-19: clip/net{size}/"static" are omitted within
-    # final_experiments when they match its only populated recipe
-    # (noclip, net256) -- all 55 configs there are that recipe, so
-    # spelling it out on every name was pure noise. "static" dropped
-    # entirely (phase mirroring removed 2026-08-18, nothing left to
-    # disambiguate from). See naming.derive_run_name()/RunSpec.is_default_recipe.
-    # 2026-08-20: "mirror" dropped the same way -- mirror_left=True is the
-    # default and every final_experiments config uses it, same
-    # zero-information-token situation, just missed in the original pass.
+    # default-recipe tokens (noclip, net256, mirror) are omitted in final_experiments
     assert path == (
         BASELINES_ROOT / "final_experiments" / "emg_lap" / "h0918"
         / "h0918_k6_w05_onlyvelrew_seed2" / "config.yaml"
@@ -216,11 +180,8 @@ def test_config_path_layout():
 
 
 def test_config_path_routes_non_default_recipe_to_other():
-    """net512 (or clip=True) within final_experiments must physically
-    segregate under .../final_experiments/other/... -- 2026-08-19, so the
-    main tree never mixes recipes and its names never need net/clip
-    tokens. derive_tonic_name() must match this exactly (see its
-    docstring) since that's what deprl uses to resume a run."""
+    """Non-default recipes go under final_experiments/other/, and
+    derive_tonic_name() matches that path."""
     from leaps.configs.naming import derive_tonic_name
 
     spec = RunSpec(category=Category.MPO, body="h0918", reward_variant=RewardVariant.ONLYVELREW, net_size=512, seed=0)

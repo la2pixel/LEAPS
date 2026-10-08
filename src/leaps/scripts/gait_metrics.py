@@ -1,40 +1,32 @@
-"""Consolidated gait-mechanics battery for the trained RL policies -- one row
-per (body, method), pooled over the t* rollout episodes. Replaces the
-scattered gait_scorecard.py + experimental_match.py.
+"""Gait mechanics of the trained policies, one row per (body, method), pooled
+over the rollout episodes at the selected checkpoint.
 
-Metrics
-  spatiotemporal : speed [m/s], cadence [steps/min], stride time [s],
-                   stance fraction, double-support fraction, flight fraction
-                   (flight > 0 => running, not walking)
-  kinematics     : hip / knee / ankle ROM [deg]  (per-cycle excursion)
-  kinetics       : peak vertical GRF per leg [BW]; peak NET knee & ankle
-                   joint moment [Nm/kg]  (sum of muscle contributions)
-  robustness     : mean time-to-fall [s]; fall rate (< 95% of episode cap)
+  spatiotemporal : speed [m/s], cadence [steps/min], stride time [s], stance,
+                   double-support and flight fraction (flight > 0 = running)
+  kinematics     : hip / knee / ankle ROM [deg]
+  kinetics       : peak vertical GRF per leg [BW]; peak net knee and ankle
+                   moment [Nm/kg]
+  robustness     : mean time to fall [s]; fall rate (< 95% of the episode cap)
   coordination   : agonist-antagonist zero-lag activation correlation
-                   (gastroc-TA, soleus-TA, vasti-hamstrings; < 0 = reciprocal,
-                   physiological; ~0 / > 0 = co-contraction)
-                   + mean activation (effort)
-  symmetry       : L/R symmetry index  SI = 100*(R-L)/(0.5*(R+L))  (0 = perfect)
-                   for step time, stance time, peak GRF, knee & ankle ROM;
-                   plus a DEP-RL-style pelvis-vs-feet lateral asymmetry
-                   (Schumacher et al. 2023 report gait symmetry as the
-                   "averaged relative pelvis-deviation of the feet").
+                   (gastroc-TA, soleus-TA, vasti-hamstrings; < 0 = reciprocal),
+                   mean activation
+  symmetry       : SI = 100*(R-L)/(0.5*(R+L)) for step time, stance time, peak
+                   GRF, knee and ankle ROM; pelvis-vs-feet lateral asymmetry
+                   (Schumacher et al. 2023)
 
-A 'human' row (treadmill ~1.2 m/s: literature values + the 22-subject EMG
-pool for the A-A correlations) is written to the CSV and drawn as a reference
-line on the figure.
+A 'human' row (treadmill ~1.2 m/s, literature values; A-A correlations from
+the 22-subject EMG pool) is added as reference.
 
     python -m leaps.scripts.gait_metrics
     python -m leaps.scripts.gait_metrics --bodies h1622
 
-Outputs: results/gait_metrics/GAIT_METRICS.csv  +  GAIT_METRICS.png
+Outputs: results/gait_metrics/GAIT_METRICS.csv + GAIT_METRICS.png
 """
 from __future__ import annotations
 
 import argparse
 import csv
 import re
-from pathlib import Path
 
 import numpy as np
 from scipy import stats
@@ -42,8 +34,9 @@ from scipy import stats
 from leaps.data import time_normalize_stride
 from leaps.scripts.biomech_fidelity import (RUNS, LIVE, MIN_ROWS, CKPT_PREF,
                                             read_sto, cross_human, load_tstar_map)
+from leaps.paths import RESULTS_DIR
 
-OUT = Path(__file__).resolve().parents[3] / "results" / "gait_metrics"
+OUT = RESULTS_DIR / "gait_metrics"
 METHODS = {"real-LAP-w00": "EMG prior w=0.0", "real-LAP": "EMG prior w=0.1",
            "real-LAP-w05": "EMG prior w=0.5", "mpo": "MPO", "dep-mpo": "DEP-MPO",
            "null": "null"}
@@ -52,8 +45,7 @@ MCOL = {"EMG prior w=0.0": "#ffc2b8", "EMG prior w=0.1": "#ff8a7a",
         "null": "#8a8f98"}
 INK = "#e8e8e8"
 
-# muscle groups -> candidate model-muscle prefixes (lumped h0918/h1622 and
-# un-lumped h2190 both covered).
+# muscle group -> model-muscle prefixes (lumped and un-lumped models)
 GRP = {
     "gastroc": ["gastroc", "gas_med", "gas_lat"],
     "soleus": ["soleus"],
@@ -158,9 +150,8 @@ def condition_metrics(body, run_dirs, tstar_map=None):
             x = ep["pelvis.com_pos_x"].to_numpy()
             acc["speed"].append((x[core][-1] - x[core][0]) / (t[core][-1] - t[core][0]))
 
-            # DEP-style: pelvis lateral position relative to the feet midline,
-            # / half the stance width. 0 = centred (symmetric), ->1 = one-sided.
-            # Skipped for a sagittal-plane model (h0918 has no lateral DoF).
+            # pelvis lateral position relative to the feet midline, over half
+            # the stance width (0 = centred). Not for the 2D model.
             pz = ep.get("pelvis.com_pos_z")
             if pz is not None and np.ptp(pz.to_numpy()[core]) > 1e-3 \
                     and {"calcn_r.com_pos_z", "calcn_l.com_pos_z"}.issubset(ep.columns):

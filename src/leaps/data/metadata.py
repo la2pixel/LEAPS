@@ -1,5 +1,4 @@
-"""Camargo dataset metadata
-"""
+"""Camargo dataset metadata."""
 
 from __future__ import annotations
 
@@ -48,49 +47,24 @@ SUBJECTS: dict[str, SubjectInfo] = {
 }
 
 ALL_SUBJECT_IDS: list[str] = sorted(SUBJECTS.keys())
-N_SUBJECTS: int = len(SUBJECTS)
 
-# group-level stats: age 21 ± 3.4 yr, height 1.70 ± 0.07 m, mass 68.3 ± 10.83 kg
-
-# locomotion modes
 ALL_MODES: list[str] = ["treadmill", "levelground", "ramp", "stair"]
 
-# Treadmill: 28 speeds, 0.5–1.85 m/s in 0.05 m/s increments
-# 7 trials x 4 speeds per trial block, 30s steady-state per speed
-TREADMILL_SPEEDS: list[float] = [round(0.5 + i * 0.05, 2) for i in range(28)]
-
-# Level-ground: 3 self-selected speeds, 10 circuits each (30 total)
-LEVELGROUND_SPEEDS: dict[str, float] = {
-    "slow": 0.88,    # ± 0.19 m/s
-    "normal": 1.17,  # ± 0.21 m/s
-    "fast": 1.45,    # ± 0.27 m/s
-}
-
-# Stairs: 6-step staircase, 5 trials x 2 starting legs x 4 heights = 40 trials
-STAIR_HEIGHTS_MM: list[int] = [102, 127, 152, 178]  # mm (4, 5, 6, 7 inches)
-
-# Ramps: 5m long, 5 trials x 2 starting legs x 6 angles = 60 trials
-RAMP_ANGLES_DEG: list[float] = [5.2, 7.8, 9.2, 11.0, 12.4, 18.0]
-
-#Sensor specs
-
-# 11 right-side lower-limb EMG channels (column names as they appear in .mat files)
+# 11 right-side lower-limb EMG channels (column names in the .mat files)
 EMG_CHANNELS: list[str] = [
-    "gastrocmed",           # gastrocnemius medialis
-    "tibialisanterior",     # tibialis anterior
-    "soleus",               # soleus
-    "vastusmedialis",       # vastus medialis
-    "vastuslateralis",      # vastus lateralis
-    "rectusfemoris",        # rectus femoris
-    "bicepsfemoris",        # biceps femoris
-    "semitendinosus",       # semitendinosus
-    "gracilis",             # gracilis
-    "gluteusmedius",        # gluteus medius
-    "rightexternaloblique", # right external oblique
+    "gastrocmed",
+    "tibialisanterior",
+    "soleus",
+    "vastusmedialis",
+    "vastuslateralis",
+    "rectusfemoris",
+    "bicepsfemoris",
+    "semitendinosus",
+    "gracilis",
+    "gluteusmedius",
+    "rightexternaloblique",
 ]
-N_EMG_CHANNELS: int = len(EMG_CHANNELS)
 
-# readable names for display/plotting
 EMG_CHANNEL_LABELS: dict[str, str] = {
     "gastrocmed": "Gastrocnemius Med.",
     "tibialisanterior": "Tibialis Anterior",
@@ -104,38 +78,6 @@ EMG_CHANNEL_LABELS: dict[str, str] = {
     "gluteusmedius": "Gluteus Medius",
     "rightexternaloblique": "Ext. Oblique (R)",
 }
-
-# Goniometer channels (column names in .mat files)
-GON_CHANNELS: list[str] = [
-    "ankle_sagittal", "ankle_frontal",
-    "knee_sagittal",
-    "hip_sagittal", "hip_frontal",
-]
-
-# IMU channels (column names in .mat files)
-# 4 placements x (3 Accel + 3 Gyro) = 24 channels
-IMU_PLACEMENTS: list[str] = ["foot", "shank", "thigh", "trunk"]
-IMU_AXES: list[str] = ["X", "Y", "Z"]
-IMU_CHANNEL_TYPES: list[str] = ["Accel", "Gyro"]
-
-# Gait cycle columns (gcLeft / gcRight)
-GC_CHANNELS: list[str] = ["HeelStrike", "ToeOff"]
-
-# Conditions: treadmill has "Speed" column; other modes have string-only label
-# columns (e.g. "Label") that are NOT extracted by the numeric .mat parser.
-# Label-based stride classification requires a separate string extraction step.
-CONDITIONS_NUMERIC_CHANNELS: dict[str, list[str]] = {
-    "treadmill": ["Speed"],
-    "levelground": [],
-    "ramp": [],
-    "stair": [],
-}
-
-# Bilateral motion capture (84 numeric channels + Header)
-N_MOCAP_MARKERS: int = 32
-
-# Force plates per ambulation mode
-N_FORCE_PLATES: int = 5
 
 # sample rates for each signal (Hz)
 SAMPLE_RATES: dict[str, int] = {
@@ -151,8 +93,6 @@ SAMPLE_RATES: dict[str, int] = {
     "ik": 200,
     "jp": 200,
 }
-
-# These match the actual code in rectify.m / STRIDES.m example scripts provided
 
 @dataclass(frozen=True)
 class FilterSpec:
@@ -178,17 +118,3 @@ EMG_BANDPASS = FilterSpec(
 EMG_ENVELOPE_LOWPASS = FilterSpec(
     sample_rate=1000, filter_type="lowpass", cutoff=6.0, order=4, method="butter",
 )
-
-# IMU and GON acquisition filters (from paper)
-IMU_FILTER = FilterSpec(sample_rate=200, filter_type="lowpass", cutoff=100.0, order=6)
-GON_FILTER = FilterSpec(sample_rate=1000, filter_type="lowpass", cutoff=20.0, order=4)
-
-#normalize emg
-EMG_NORMALIZATION_SPEED: float = 1.35  # m/s
-
-# Gait cycle 
-
-# Gait phase: 0–100% from heel strike to heel strike (right leg)
-# Heel strike detected from MoCap as zero linear velocity of heel marker
-# Phase computed via linear interpolation between heel strikes
-GAIT_CYCLE_PERCENT: tuple[float, float] = (0.0, 100.0)

@@ -1,13 +1,7 @@
-"""Extract the raw pre-decode latent (z_u, action[:dim_latent]) a trained
-policy actually produces during rollout -- checks whether the decoder's
-usable z-range (set by the penalty threshold/scale during AE training,
-see notebooks/ab06_decoder_data.ipynb) is something the policy actually
-exercises, or mostly unused headroom.
+"""Latent actions (z_u = action[:dim_latent]) a trained policy produces in
+rollout, to check how much of the decoder's latent range it uses.
 
-Checkpoint-loading sequence copied from
-leaps/models/extract_rollout_activations.py (itself copied from
-deprl/play.py::play()) -- same reasoning: existing tested path, not
-reinvented, just recording a different per-step quantity.
+Checkpoint loading follows deprl/play.py::play().
 """
 
 from __future__ import annotations
@@ -33,12 +27,7 @@ def extract(checkpoint_dir: str, dim_latent: int, n_episodes: int, seed: int = 0
     exec(header)  # noqa: S102
 
     agent = eval(agent_str)  # noqa: S307
-    # deprl/main.py applies config['mpo_args'] (hidden_size, lr_*, etc.) via
-    # this exact call after construction -- deprl/play.py's own eval(tonic.
-    # agent) reload never does this, so a checkpoint from a non-default net
-    # width (e.g. net512) silently fails to load (shape mismatch -> falls
-    # back to an untrained model, no error raised). Matched here, not fixed
-    # in play.py -- scope this fix to this script only.
+    # play.py does not apply mpo_args; without it a non-default net width fails to load
     if "mpo_args" in config:
         agent.set_params(**config["mpo_args"])
     environment = eval(env_str)  # noqa: S307

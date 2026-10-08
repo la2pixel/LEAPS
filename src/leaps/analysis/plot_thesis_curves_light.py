@@ -3,11 +3,9 @@
 decoder was redrawn per env build, so it is not a fixed content control). Writes PNG + PDF to results/figures/thesis/."""
 import os
 
-import glob
 
 import matplotlib.pyplot as plt
 import numpy as np
-import pandas as pd
 
 from leaps.analysis import plot_h0918_prior_curves as c
 from leaps.paths import FIGURES_DIR

@@ -1,5 +1,4 @@
-"""Gait-cycle segmentation and stride labeling
-"""
+"""Gait-cycle segmentation and stride labeling."""
 
 from __future__ import annotations
 
@@ -226,11 +225,8 @@ def process_mode_trials(
     mode: str = "",
     fs: int = 1000,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, list[str], list[str], np.ndarray]:
-    """Rectify, segment, normalize, and time-normalize trials for any mode.
-
-    Values here might lie outside [0, 1]!
-            conditions (n,), labels (n,), durations (n,).
-    """
+    """Rectify, segment, normalize and time-normalize the trials of one mode.
+    Values can lie outside [0, 1]."""
     from leaps.data.normalize import normalize_emg
 
     strides, speeds, trial_indices, conditions, labels, durations = [], [], [], [], [], []

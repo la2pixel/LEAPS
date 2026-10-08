@@ -1,13 +1,5 @@
-"""Unit tests for the two 2026-08-19 mechanism fixes in latent_env.py:
-
-1. a_hat must be bounded [0,1] per mapped actuator (computed from the
-   decoder's raw Sigmoid output, not the raw-EMG-unit rescale) -- tested
-   directly against EMGToMuscleMapper, no simulator needed.
-2. null_prior must ignore mapped_residual_weight entirely (always full-range
-   residual_weight=1.0) -- tested against LatentActionPriorWrapper with
-   dep_content=True, which skips decoder/norm loading and needs no real
-   SCONE env, just a minimal fake with the attributes gym.Wrapper reads.
-"""
+"""latent_env.py: a_hat stays in [0, 1] per mapped actuator, and null_prior
+ignores mapped_residual_weight. No simulator needed."""
 
 import numpy as np
 import pytest
@@ -20,25 +12,12 @@ from leaps.envs.latent_env import LatentActionPriorWrapper
 @pytest.mark.parametrize(
     "model_name,actuator_names",
     [
-        # h1622: original coverage for this test, includes glut_med_r
-        # (h1622-only -- see H1622_MAP = {**H0918_MAP, "gluteusmedius": ...}).
         ("h1622", ["glut_med_r", "hamstrings_r", "rect_fem_r", "vasti_r", "gastroc_r"]),
-        # h0918: added 2026-08-20 -- this fix was only ever unit-tested
-        # against h1622's actuator set before now, never h0918's. The fix
-        # logic itself is body-agnostic (operates on actuator_names/
-        # n_actuators generically, no branching on model_name anywhere in
-        # latent_env.py/emg_mapping.py), but that was previously verified by
-        # code reading only, not by an actual test run against h0918's own
-        # (smaller, glut_med_r-free) mapped set. H0918_MAP's distinct targets:
-        # gastroc_r/tib_ant_r/soleus_r/rect_fem_r/vasti_r/hamstrings_r.
         ("h0918", ["hamstrings_r", "rect_fem_r", "vasti_r", "gastroc_r", "tib_ant_r", "soleus_r"]),
     ],
 )
 def test_a_hat_bounded_unit_interval(model_name, actuator_names):
-    """map_emg_to_muscles(emg_u) must stay in [0,1] for every mapped
-    actuator given any emg_u in [0,1]^11 -- the fix's whole point. Rows are
-    0/one-hot/an even split summing to <=1 (see EMGToMuscleMapper docstring),
-    so a weighted average of [0,1] inputs is provably bounded the same way."""
+    """map_emg_to_muscles(emg_u) stays in [0, 1] for any emg_u in [0, 1]^11."""
     mapper = EMGToMuscleMapper(model_name, actuator_names, mirror_left=False)
 
     rng = np.random.default_rng(0)
@@ -77,9 +56,7 @@ class _FakeUnwrapped:
 
 
 class _FakeEnv:
-    """Minimal stand-in satisfying gym.Wrapper.__init__'s attribute reads --
-    dep_content=True skips decoder/norm.npz loading entirely, so nothing
-    else about the env matters for this test."""
+    """Minimal stand-in for the attributes gym.Wrapper reads."""
 
     def __init__(self, names):
         n = len(names)
@@ -90,9 +67,6 @@ class _FakeEnv:
         self.metadata = {}
 
 
-# h1622: original coverage, includes glut_med_r (h1622-only mapped target).
-# h0918: added 2026-08-20, same rationale as test_a_hat_bounded_unit_interval
-# above -- closes the previously-untested-for-h0918 gap for this fix too.
 _ACTUATOR_NAMES_BY_BODY = {
     "h1622": ["glut_med_r", "add_mag_r", "hamstrings_r", "rect_fem_r", "vasti_r", "gastroc_r", "iliopsoas_r"],
     "h0918": ["hamstrings_r", "rect_fem_r", "vasti_r", "gastroc_r", "tib_ant_r", "soleus_r", "iliopsoas_r"],
@@ -101,11 +75,7 @@ _ACTUATOR_NAMES_BY_BODY = {
 
 @pytest.mark.parametrize("model_name", ["h1622", "h0918"])
 def test_null_prior_ignores_mapped_residual_weight(model_name):
-    """A null_prior=True wrapper must use full-range residual_weight=1.0
-    everywhere, regardless of mapped_residual_weight -- a_hat is always 0
-    for null_prior, so pinning a low weight on mapped actuators only caps
-    their reachable activation (final_action = w * a_full, ceiling = w) for
-    no reason. See the __init__ fix comment for the closed-form proof."""
+    """null_prior uses residual_weight=1.0 everywhere, whatever mapped_residual_weight is."""
     env = _FakeEnv(_ACTUATOR_NAMES_BY_BODY[model_name])
     wrapper = LatentActionPriorWrapper(
         env, model_name=model_name, dim_latent=6, residual_weight=1.0,
@@ -119,9 +89,7 @@ def test_null_prior_ignores_mapped_residual_weight(model_name):
 
 @pytest.mark.parametrize("model_name", ["h1622", "h0918"])
 def test_non_null_prior_still_respects_mapped_residual_weight(model_name):
-    """Guard against over-correcting: a real/untrained prior (null_prior=
-    False) must still get the per-actuator override -- only null_prior is
-    exempt."""
+    """A real or untrained prior still gets the per-actuator weight."""
     env = _FakeEnv(_ACTUATOR_NAMES_BY_BODY[model_name])
     wrapper = LatentActionPriorWrapper(
         env, model_name=model_name, dim_latent=6, residual_weight=1.0,
@@ -133,12 +101,7 @@ def test_non_null_prior_still_respects_mapped_residual_weight(model_name):
 
 
 def test_add_mag_is_unmapped_on_h1622():
-    """Sanity check behind the loosened_actuators ablation idea: add_mag_r has
-    no H1622_MAP entry, so it must already be sitting at the full, unconstrained
-    residual_weight (not tightened by mapped_residual_weight at all) -- it's
-    glut_med_r (which *is* mapped) that's the one actually over-constrained on
-    this antagonist pair, not add_mag_r. Confirms which actuator the ablation
-    below should target before spending any compute on it."""
+    """add_mag_r has no EMG channel, so it sits at the full residual_weight."""
     env = _FakeEnv(_ACTUATOR_NAMES_BY_BODY["h1622"])
     wrapper = LatentActionPriorWrapper(
         env, model_name="h1622", dim_latent=6, residual_weight=1.0,
@@ -150,10 +113,7 @@ def test_add_mag_is_unmapped_on_h1622():
 
 
 def test_loosened_actuators_overrides_only_named_actuators():
-    """loosened_actuators should override mapped_residual_weight for exactly
-    the named actuators, leaving every other mapped actuator at
-    mapped_residual_weight and every unmapped actuator at the base
-    residual_weight -- a targeted override, not a body-wide change."""
+    """loosened_actuators overrides the weight of exactly the named actuators."""
     env = _FakeEnv(_ACTUATOR_NAMES_BY_BODY["h1622"])
     wrapper = LatentActionPriorWrapper(
         env, model_name="h1622", dim_latent=6, residual_weight=1.0,
@@ -162,9 +122,9 @@ def test_loosened_actuators_overrides_only_named_actuators():
     )
     names = [a.name() for a in env.unwrapped.model.actuators()]
     assert wrapper.residual_weight[names.index("glut_med_r")] == pytest.approx(0.5)
-    # other mapped actuators (e.g. hamstrings_r) untouched, still at mapped_residual_weight
+    # other mapped actuators stay at mapped_residual_weight
     assert wrapper.residual_weight[names.index("hamstrings_r")] == pytest.approx(0.1)
-    # unmapped actuators (add_mag_r, iliopsoas_r) untouched, still at base residual_weight
+    # unmapped actuators stay at residual_weight
     assert wrapper.residual_weight[names.index("add_mag_r")] == pytest.approx(1.0)
     assert wrapper.residual_weight[names.index("iliopsoas_r")] == pytest.approx(1.0)
 

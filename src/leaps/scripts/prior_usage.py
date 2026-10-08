@@ -18,20 +18,18 @@ from __future__ import annotations
 
 import argparse
 import csv
-from pathlib import Path
-
 import numpy as np
 import torch
 from scipy import stats
 from scipy.spatial import cKDTree
 
 from leaps.data import time_normalize_stride
-from leaps.envs.emg_mapping import EMG_CHANNELS, MODEL_MAPS
+from leaps.envs.emg_mapping import MODEL_MAPS
+from leaps.paths import PRIORS_DIR, RESULTS_DIR
 
-ROOT = Path(__file__).resolve().parents[3] / "results"
-SEL = ROOT / "checkpoint_selection"
-OUT = ROOT / "prior_usage"
-DEC = ROOT / "synergy_priors/single_subject/decoder_k6_AB06_corrected"
+SEL = RESULTS_DIR / "checkpoint_selection"
+OUT = RESULTS_DIR / "prior_usage"
+DEC = PRIORS_DIR / "decoder_k6_AB06_corrected"
 BODIES, WS = ("h0918", "h1622", "h2190"), ("w00", "w01", "w05")
 W_VAL = {"w00": 0.0, "w01": 0.1, "w05": 0.5}
 N_EP, DT = 8, 0.025

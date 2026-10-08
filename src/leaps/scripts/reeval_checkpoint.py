@@ -1,15 +1,10 @@
-"""Phase-2 of the checkpoint-selection rule (locked 2026-09-08): fresh
-N-episode deterministic eval at each seed's t* checkpoint.
+"""Fresh N-episode deterministic evaluation at each seed's t* checkpoint.
 
-`score` here = sum of per-step env reward over the episode = exactly the
-quantity tonic logs as test/episode_score, so the output is directly
-comparable to the training curve / select_checkpoint.py's score@t*.
-
-Reads a selection CSV written by select_checkpoint.py (cols: label, seed,
-t_star, score_at_tstar, final10, run_dir) and re-evals every row.
+score = sum of per-step reward over the episode, the quantity tonic logs as
+test/episode_score. Reads a selection CSV written by select_checkpoint.py.
 
     python -m leaps.scripts.reeval_checkpoint \
-        --selection LEAPS/results/checkpoint_selection/emg_lap_h1622_w01_onlyvelrew.csv \
+        --selection results/checkpoint_selection/emg_lap_h1622_w01_onlyvelrew.csv \
         --episodes 100
 """
 import argparse
@@ -20,7 +15,6 @@ import statistics
 import sys
 import time
 
-import numpy as np
 import yaml
 
 

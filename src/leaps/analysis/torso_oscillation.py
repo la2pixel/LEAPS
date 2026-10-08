@@ -1,52 +1,18 @@
-"""Torso oscillation figure, Schumacher et al. 2023 (arXiv:2309.02976) Fig 4
-REPLICA: fetched the actual PDF (page 6) on 2026-09-14 rather than going off
-the caption text alone -- their Fig 4 is raw time series, NOT a phase-locked
-gait-cycle average: one panel per model, ~5 individual 10s rollout traces
-(thin overlaid lines, no mean/SD band), dashed 0deg straight-posture line,
-x=time[s] 0-10, y=torso angle from vertical [deg]. This version replaces an
-earlier gait-cycle-normalized mean+-SD draft that didn't match that style.
+"""Torso oscillation, after Schumacher et al. 2023 (arXiv:2309.02976), Fig 4:
+raw torso-angle traces of a few 10 s rollouts per condition against the
+0 deg upright line. No human reference.
 
-Checked directly against their paper: this figure uses NO human reference
-data -- straight-posture (0deg) baseline + model-vs-model comparison only
-(their H2190 vs MyoLeg). We follow the same precedent: no human band here,
-one panel per condition instead of per model (mpo/dep-mpo/w=0.0/w=0.1/w=0.5),
-against the same 0deg dashed line.
+  sagittal (torso.ori_z)   all three bodies
+  lateral  (torso.ori_x)   h1622 and h2190 only (h0918 is 2D)
 
-Two axes, both from torso.ori_{x,z} (SCONE trunk orientation, rad ->deg):
-  sagittal (torso.ori_z, r=0.97 vs pelvis_tilt) -- all 3 bodies. This is the
-    metric plotted (their "torso angle with the vertical axis" isn't
-    formally defined in the text; sagittal trunk lean is the standard gait
-    convention and the only one that exists on all 3 of our bodies).
-  lateral  (torso.ori_x, r=0.96 vs pelvis_list) -- h1622/h2190 only; h0918 is
-    the 2D model (no frontal-plane DOF), so its torso.ori_x is identically 0
-    and it's excluded from that panel rather than plotted as a fake flat 0.
-    This is our extra column -- their Fig 4's own text singles out lateral
-    oscillation as the interesting MyoLeg artifact, so it's worth showing
-    separately rather than folding it into one blended angle.
-Axis identities verified empirically (correlation against the named pelvis
-DOF) on 2026-09-14, not assumed from column-name order.
-
-A separate gait-cycle-normalized summary table (peak-to-peak/RMS/mean-offset
-per condition) is still written to TORSO_OSC.csv -- useful quantification,
-independent of the plot-style fix.
-
---style cycle (2026-09-18, added on request): plots that same
-gait-cycle-normalized mean+-SD band (x=0-100% stride, already computed by
-pool_torso for the CSV, previously discarded after being reduced to the 3
-summary scalars) instead of the raw 10s traces. Not a paper replica -- for
-h1622 specifically, where w<=0.1 is a stiff-knee bounce rather than a
-normal gait, this reads far more clearly: a stable walk gives a narrow
-repeatable band, the bounce gives either a much larger amplitude or a wide
-ragged band, visible at a glance instead of squinting at 5 overlaid noisy
-raw lines. Written to TORSO_OSC_CYCLE_<body>.png, separate from the raw
-Fig-4-replica file so neither overwrites the other.
+Peak-to-peak, RMS and mean offset per condition, computed on gait-cycle
+normalized data, go to TORSO_OSC.csv. --style cycle plots the cycle-normalized
+mean +/- SD instead of the raw traces (TORSO_OSC_CYCLE_<body>.png).
 
     python -m leaps.analysis.torso_oscillation
-    python -m leaps.analysis.torso_oscillation --body h2190
     python -m leaps.analysis.torso_oscillation --body h1622 --style cycle
 """
 import argparse
-from pathlib import Path
 
 import numpy as np
 import matplotlib
@@ -54,7 +20,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 from leaps.data import time_normalize_stride
-from leaps.scripts.biomech_fidelity import RUNS, LIVE, read_sto, load_tstar_map, CKPT_PREF, MIN_ROWS
+from leaps.scripts.biomech_fidelity import RUNS, LIVE, read_sto, load_tstar_map, MIN_ROWS
 from leaps.paths import RESULTS_DIR
 
 METHODS = {
@@ -78,11 +44,7 @@ def seg_cycles(grf, dt):
     rise_raw = np.where(on[1:] & ~on[:-1])[0] + 1
     if len(rise_raw) == 0:
         return []
-    # De-bounce: drop edges <0.4s apart (GRF ripple within one stance phase,
-    # not a real new cycle) -- same fix gait_metrics.py's _hs() already has;
-    # without it, a genuine ~0.78s stride gets fragmented into two ~0.4s
-    # pieces that then fail the 0.6-1.8s stride-length filter below,
-    # silently zeroing out otherwise-valid gait (found on h1622 w=0.0).
+    # de-bounce: drop edges < 0.4 s apart (GRF ripple within one stance)
     rise = [rise_raw[0]]
     for i in rise_raw[1:]:
         if i - rise[-1] >= int(0.4 / dt):
@@ -130,14 +92,8 @@ def pool_torso(run_dirs, tmap, body, min_rows):
 
 
 def load_raw_traces(run_dirs, tmap, body, min_rows, n=N_TRACES, tmax=T_MAX, drop_falls=False):
-    """Up to n individual-episode (t, sag_deg, lat_deg_or_None) traces, raw
-    time series (no gait-cycle segmentation/normalization) -- matches Fig 4's
-    literal '5 rollouts of 10s' presentation. Falls truncate the trace early
-    (kept, not discarded -- that's real behavior, not missing data), UNLESS
-    drop_falls=True, in which case falls (< min_rows, same cutoff pool_torso
-    uses) are excluded entirely rather than shown truncated -- for when a
-    figure is deliberately restricted to a "this seed walks" condition and a
-    visible fall in the trace would contradict that framing."""
+    """Up to n per-episode (t, sag_deg, lat_deg or None) raw traces. Falls
+    are kept truncated unless drop_falls=True."""
     traces = []
     for rd in run_dirs:
         root = LIVE.parent / rd if rd.startswith("not_used/") else LIVE / rd
@@ -291,9 +247,9 @@ def main():
                 ax.set_xlabel("% gait cycle", color=(INK if args.dark else "black"))
                 ax.set_ylabel("torso ang. [deg]", color=(INK if args.dark else "black"))
                 ax.set_xlim(0, 100)
-                leg = ax.legend(fontsize=9, loc="best",
-                                 labelcolor=(INK if args.dark else None),
-                                 framealpha=(0.0 if args.dark else None))
+                ax.legend(fontsize=9, loc="best",
+                          labelcolor=(INK if args.dark else None),
+                          framealpha=(0.0 if args.dark else None))
                 fig.tight_layout()
                 return fig
 
@@ -326,7 +282,6 @@ def main():
                     print(f"wrote {outp}")
                 continue
 
-            # combined sagittal+lateral, one figure, two columns (original behavior)
             ncols = 2 if has_lat else 1
             fig, axes = plt.subplots(len(labels), ncols, figsize=(5.0 * ncols, 2.0 * len(labels)),
                                       squeeze=False, sharex=True)

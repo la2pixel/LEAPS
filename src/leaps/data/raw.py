@@ -28,7 +28,6 @@ from __future__ import annotations
 
 import logging
 import re
-from collections import Counter
 from pathlib import Path
 
 import h5py
@@ -77,14 +76,7 @@ def _get_workspace(filepath: str) -> bytes | None:
 
 
 def _find_column_names(ws: bytes, first_col: str = "Header") -> list[str]:
-    """Extract table column names from the workspace byte stream.
-
-    Example for an EMG file, this extracts:
-        ["Header", "gastrocmed", "tibialisanterior", "soleus", ...]
-
-    Example for a gcRight file:
-        ["Header", "HeelStrike", "ToeOff"]
-    """
+    """Table column names from the workspace bytes, e.g. ["Header", "HeelStrike", "ToeOff"]."""
     start = ws.find(first_col.encode("ascii"))
     if start < 0:
         return []
@@ -100,9 +92,7 @@ def _find_column_names(ws: bytes, first_col: str = "Header") -> list[str]:
 
 
 def _find_double_arrays(ws: bytes, min_elements: int = 100) -> list[np.ndarray]:
-    """Scan the workspace for miDOUBLE (type tag = 9) data elements.
-
-    """
+    """Scan the workspace for miDOUBLE (type tag 9) data elements."""
     min_bytes = min_elements * 8
     ws_len = len(ws)
     candidates: list[tuple[int, np.ndarray]] = []
@@ -132,25 +122,8 @@ def _find_double_arrays(ws: bytes, min_elements: int = 100) -> list[np.ndarray]:
 
 
 def load_mat_table(filepath: str | Path) -> dict[str, np.ndarray]:
-    """Load numeric columns from a MATLAB table stored in a v5 .mat file.
-
-    Returns ``{column_name: 1d_array}``. Skip string cols.
-
-    Example output for an EMG file:
-        {
-            "Header": array([0.000, 0.001, 0.002, ...]),  # time in seconds
-            "gastrocmed": array([0.012, -0.003, ...]),     # raw EMG (mV)
-            "tibialisanterior": array([...]),
-            ...  # 11 muscle channels total
-        }
-
-    Example output for a gcRight file:
-        {
-            "Header": array([0.000, 0.005, 0.010, ...]),  # time (200 Hz)
-            "HeelStrike": array([45.2, 46.1, ..., 99.8, 0.3, ...]),  # sawtooth 0-100%
-            "ToeOff": array([...]),
-        }
-    """
+    """Numeric columns of a MATLAB table in a v5 .mat file, as {column_name: 1d_array}.
+    "Header" is the time vector in seconds; string columns are skipped."""
     ws = _get_workspace(str(filepath))
     if ws is None:
         return {}
@@ -288,7 +261,6 @@ def _parse_label_cell_array(ws: bytes, cell_start: int, cell_nbytes: int) -> lis
 
     pos = cell_data_start + 40
     labels: list[str] = []
-#tuned to my setup
     while pos < cell_data_end - 8 and len(labels) < n_elements:
         tag = int.from_bytes(ws[pos: pos + 4], "little")
         if tag != 14:
@@ -298,7 +270,6 @@ def _parse_label_cell_array(ws: bytes, cell_start: int, cell_nbytes: int) -> lis
 
         ds = 40
         if ds + 4 <= len(elem_data):
-            type_low  = int.from_bytes(elem_data[ds: ds + 2], "little")      # always 16 (miUTF8)
             type_high = int.from_bytes(elem_data[ds + 2: ds + 4], "little")  # nonzero → compressed
             if type_high > 0:
                 # compressed small element: type_high is the byte count (≤4 chars)
@@ -399,8 +370,7 @@ def extract_condition_labels(
     mode: str,
     n_rows: int | None = None,
 ) -> list[str] | str | None:
-    """Extract condition label from a Camargo conditions .mat file.
-    """
+    """Condition label from a Camargo conditions .mat file."""
     if mode == "treadmill":
         return None  # treadmill uses numeric Speed column
 

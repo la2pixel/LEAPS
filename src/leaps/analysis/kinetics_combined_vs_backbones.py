@@ -1,17 +1,13 @@
-"""Kinetics (net joint moment, Nm/kg) companion to kinematics_combined_vs_
-backbones.py -- identical structure and identical selection rule: prior
-fixed to w=0.1 (decided a priori, not searched), best seed within each of
-the three conditions (prior/MPO/DEP-MPO), same as kinematics and muscle
-timing. Rows = bodies, columns = hip/knee/ankle net moment.
+"""Net joint moments (Nm/kg), rows = bodies, columns = hip / knee / ankle.
+Same layout and seed selection as kinematics_combined_vs_backbones.py.
 
     python -m leaps.analysis.kinetics_combined_vs_backbones
 
-Output -> LEAPS/results/biomech_fidelity/KINETICS_COMBINED_VS_BACKBONES.png
+Output: results/biomech_fidelity/KINETICS_COMBINED_VS_BACKBONES.png
 """
 from __future__ import annotations
 
 import argparse
-from pathlib import Path
 
 import numpy as np
 import matplotlib
@@ -34,11 +30,7 @@ LABEL = {"prior": "prior (w=0.5)", "mpo": "MPO", "dep-mpo": "DEP-MPO"}
 WIN_GREEN = "#3fb950"
 TIE_ORANGE = "#d99a3f"
 TIE_TOL = 0.03
-# w=0.5, not w=0.1 -- kinetics/moments favors more residual freedom (ties to
-# the same weight winning on raw return), a different, robustly-checked
-# regime from kinematics/muscle-timing's w=0.1. Disclosed explicitly: this
-# figure and the kinematics one use different, individually fixed weights
-# for different properties, not "ours" at one unspecified setting.
+# the prior is shown at w=0.5 here (w=0.1 in the kinematics figure)
 COND_FOR = {"prior": ["real-LAP-w05"], "mpo": ["mpo"], "dep-mpo": ["dep-mpo"]}
 
 
@@ -65,8 +57,7 @@ def main() -> None:
     ap.add_argument("--separate", action="store_true",
                      help="--body only: one row per condition (prior/MPO/DEP-MPO) "
                           "instead of overlaying all 3 in one panel per joint, with "
-                          "the match_fraction score printed on each panel, same "
-                          "convention as kinematics_schumacher_style.py")
+                          "the match_fraction score printed on each panel")
     args = ap.parse_args()
     if args.separate and not args.body:
         raise SystemExit("--separate requires --body")
@@ -158,9 +149,7 @@ def main() -> None:
     for bi, body in enumerate(bodies):
         series = {}
         for key, conds in COND_FOR.items():
-            # selection criterion stays the kinematics one (angle match_overall)
-            # -- same fixed, pre-declared rule as the kinematics figure, applied
-            # here too so the SAME selected seed is used for both figures.
+            # seed selected by angle match_overall, as in the kinematics figure
             pooled, seed, score = best_seed_pooled(body, conds, band)
             series[key] = pooled
             print(f"{body} {key}: seed={seed} (kinematics match_overall={score:.2f})")
