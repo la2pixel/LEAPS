@@ -2,6 +2,8 @@ This folder contains the result tables behind the numbers and figures in the the
 
 Conditions are named as in the thesis: `MPO` and `DEP-MPO` are the backbones, `EMG prior w=...` (`real-LAP-w00`, `real-LAP`, `real-LAP-w05` in the `f2_*` files, for w = 0, 0.1, 0.5) is LEAPS with residual weight w, `null` is the null prior and `untrained` the randomly initialized decoder. The null prior is written as the string `null`, so read these files with `pd.read_csv(path, keep_default_na=False)`.
 
+Checkpoints in the gait and EMG tables (`gait_metrics/`, `biomech_fidelity/`): the scripts read rollouts at the selected checkpoint `t_star` when they exist and otherwise fall back to the last checkpoint. In the stored tables, w = 0, w = 0.5 and the walking H1622 w = 0.1 seed are at `t_star`; MPO, DEP-MPO, the null prior and the other w = 0.1 seeds are at the last checkpoint (20M steps; DEP-MPO H1622 seed 1 at 25M). The return tables in `checkpoint_selection/` always use `t_star`.
+
 `checkpoint_selection/`, from `leaps select-checkpoint`, `leaps reeval-checkpoint` and `python -m leaps.analysis.return_table`:
 
 | file | content |
