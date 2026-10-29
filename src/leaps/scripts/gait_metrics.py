@@ -37,8 +37,8 @@ from leaps.scripts.biomech_fidelity import (RUNS, LIVE, MIN_ROWS, CKPT_PREF,
 from leaps.paths import RESULTS_DIR
 
 OUT = RESULTS_DIR / "gait_metrics"
-METHODS = {"real-LAP-w00": "EMG prior w=0.0", "real-LAP": "EMG prior w=0.1",
-           "real-LAP-w05": "EMG prior w=0.5", "mpo": "MPO", "dep-mpo": "DEP-MPO",
+METHODS = {"emg-w00": "EMG prior w=0.0", "emg-w01": "EMG prior w=0.1",
+           "emg-w05": "EMG prior w=0.5", "mpo": "MPO", "dep-mpo": "DEP-MPO",
            "null": "null"}
 MCOL = {"EMG prior w=0.0": "#ffc2b8", "EMG prior w=0.1": "#ff8a7a",
         "EMG prior w=0.5": "#c73e2e", "MPO": "#6fb8ff", "DEP-MPO": "#5fd39a",

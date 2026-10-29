@@ -33,8 +33,8 @@ from leaps.paths import RESULTS_DIR
 from leaps.data.metadata import CAMARGO_DATA_ROOT
 
 # full reward: only h0918 has runs with the current recipe
-METHODS_FULL = {"mpo-full": "MPO (full)", "real-LAP-noclip": "EMG prior (full, noclip)",
-                "real-LAP-clip": "EMG prior (full, clip)"}
+METHODS_FULL = {"mpo-full": "MPO (full)", "emg-noclip": "EMG prior (full, noclip)",
+                "emg-clip": "EMG prior (full, clip)"}
 MCOL_FULL = {"MPO (full)": "#1f77b4", "EMG prior (full, noclip)": "#d62728",
              "EMG prior (full, clip)": "#e377c2"}
 
@@ -49,9 +49,9 @@ SCONE_SIGN = {"hip": 1.0, "knee": 1.0, "ankle": 1.0}
 ALIGN_OFFSET = True
 METHODS = {
     "mpo": "MPO", "dep-mpo": "DEP-MPO",
-    "real-LAP-w00": "EMG prior w=0.0", "real-LAP": "EMG prior w=0.1",
-    "real-LAP-w01-seed0": "EMG prior w=0.1 (seed0, walking)",
-    "real-LAP-w05": "EMG prior w=0.5",
+    "emg-w00": "EMG prior w=0.0", "emg-w01": "EMG prior w=0.1",
+    "emg-w01-seed0": "EMG prior w=0.1 (seed0, walking)",
+    "emg-w05": "EMG prior w=0.5",
     "null": "null",
 }
 MCOL = {
@@ -63,8 +63,8 @@ MCOL = {
 
 # prior ladder without backbones; colors as in plot_h0918_prior_curves.py
 METHODS_VARIANTS = {
-    "real-LAP-w00": "only prior (w=0.0)", "real-LAP": "prior + 0.1 residual",
-    "real-LAP-w05": "prior + 0.5 residual", "null": "no prior (null)",
+    "emg-w00": "only prior (w=0.0)", "emg-w01": "prior + 0.1 residual",
+    "emg-w05": "prior + 0.5 residual", "null": "no prior (null)",
     "untrained": "untrained decoder",
 }
 MCOL_VARIANTS = {

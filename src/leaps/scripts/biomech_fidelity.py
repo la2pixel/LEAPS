@@ -44,7 +44,7 @@ CAPTION_ORDER = [
 # their color convention (orange = independent, blue = synergistic), with --park-colors
 PARK_STYLE_COLORS = {
     "mpo": "#e08214", "dep-mpo": "#b35806",
-    "real-LAP-w00": "#9ecae1", "real-LAP": "#3182bd", "real-LAP-w05": "#08519c",
+    "emg-w00": "#9ecae1", "emg-w01": "#3182bd", "emg-w05": "#08519c",
 }
 PARK_ABBR = {
     "soleus": "SOL", "gastrocmed": "GAS", "tibialisanterior": "TA",
@@ -53,14 +53,15 @@ PARK_ABBR = {
 }
 
 # {body: {condition: [run_dir, ...]}}: the thesis runs each analysis reads, relative to
-# final_experiments/. Edit this to evaluate other runs. Two runs keep an older name
+# final_experiments/. Edit this to evaluate other runs. The thesis runs were trained while the
+# decoder was still called AB06_corrected, hence the token. Two runs keep an older name
 # (mpo h1622 seed1, dep-mpo h2190 seed1).
 RUNS: dict[str, dict[str, list[str]]] = {
     "h0918": {
-        "real-LAP": ["emg_lap/h0918/h0918_k6_w01_onlyvelrew_AB06_corrected_seed0",
+        "emg-w01": ["emg_lap/h0918/h0918_k6_w01_onlyvelrew_AB06_corrected_seed0",
                      "emg_lap/h0918/h0918_k6_w01_onlyvelrew_AB06_corrected_seed1"],
-        "real-LAP-w00": [f"emg_lap/h0918/h0918_k6_w00_onlyvelrew_AB06_corrected_seed{s}" for s in (0, 1)],
-        "real-LAP-w05": [f"emg_lap/h0918/h0918_k6_w05_onlyvelrew_AB06_corrected_seed{s}" for s in (0, 1)],
+        "emg-w00": [f"emg_lap/h0918/h0918_k6_w00_onlyvelrew_AB06_corrected_seed{s}" for s in (0, 1)],
+        "emg-w05": [f"emg_lap/h0918/h0918_k6_w05_onlyvelrew_AB06_corrected_seed{s}" for s in (0, 1)],
         "mpo": ["mpo/h0918/h0918_onlyvelrew_seed0", "mpo/h0918/h0918_onlyvelrew_seed1"],
         "dep-mpo": ["dep-mpo/h0918/h0918_onlyvelrew_dep_seed0",
                     "dep-mpo/h0918/h0918_onlyvelrew_dep_seed1"],
@@ -70,12 +71,12 @@ RUNS: dict[str, dict[str, list[str]]] = {
                       for s in (0, 1)],
     },
     "h1622": {
-        "real-LAP": [f"emg_lap/h1622/h1622_k6_w01_onlyvelrew_AB06_corrected_seed{s}"
+        "emg-w01": [f"emg_lap/h1622/h1622_k6_w01_onlyvelrew_AB06_corrected_seed{s}"
                      for s in (0, 1, 2, 3)],
         # the one w=0.1 seed that walks rather than bounds
-        "real-LAP-w01-seed0": ["emg_lap/h1622/h1622_k6_w01_onlyvelrew_AB06_corrected_seed0"],
-        "real-LAP-w00": [f"emg_lap/h1622/h1622_k6_w00_onlyvelrew_AB06_corrected_seed{s}" for s in (0, 1)],
-        "real-LAP-w05": [f"emg_lap/h1622/h1622_k6_w05_onlyvelrew_AB06_corrected_seed{s}" for s in (0, 1)],
+        "emg-w01-seed0": ["emg_lap/h1622/h1622_k6_w01_onlyvelrew_AB06_corrected_seed0"],
+        "emg-w00": [f"emg_lap/h1622/h1622_k6_w00_onlyvelrew_AB06_corrected_seed{s}" for s in (0, 1)],
+        "emg-w05": [f"emg_lap/h1622/h1622_k6_w05_onlyvelrew_AB06_corrected_seed{s}" for s in (0, 1)],
         "mpo": ["mpo/h1622/h1622_onlyvelrew_seed0",
                 "mpo/h1622/h1622_net256_onlyvelrew_seed1",
                 "mpo/h1622/h1622_onlyvelrew_seed2"],
@@ -90,10 +91,10 @@ RUNS: dict[str, dict[str, list[str]]] = {
                       "other/emg_lap/h1622/h1622_k6_w01_loosentib_ant05_onlyvelrew_AB06_corrected_seed1"],
     },
     "h2190": {
-        "real-LAP": [f"emg_lap/h2190/h2190_k6_w01_onlyvelrew_AB06_corrected_seed{s}"
+        "emg-w01": [f"emg_lap/h2190/h2190_k6_w01_onlyvelrew_AB06_corrected_seed{s}"
                      for s in (0, 1, 2, 3)],
-        "real-LAP-w00": [f"emg_lap/h2190/h2190_k6_w00_onlyvelrew_AB06_corrected_seed{s}" for s in (0, 1)],
-        "real-LAP-w05": [f"emg_lap/h2190/h2190_k6_w05_onlyvelrew_AB06_corrected_seed{s}" for s in (0, 1)],
+        "emg-w00": [f"emg_lap/h2190/h2190_k6_w00_onlyvelrew_AB06_corrected_seed{s}" for s in (0, 1)],
+        "emg-w05": [f"emg_lap/h2190/h2190_k6_w05_onlyvelrew_AB06_corrected_seed{s}" for s in (0, 1)],
         "mpo": [f"mpo/h2190/h2190_onlyvelrew_seed{s}" for s in (0, 1, 2)],
         "dep-mpo": ["dep-mpo/h2190/h2190_onlyvelrew_dep_seed0",
                     "dep-mpo/h2190/h2190_noclip_net256_onlyvelrew_seed1",
@@ -108,12 +109,12 @@ RUNS: dict[str, dict[str, list[str]]] = {
 # full-reward runs. Dirs starting "not_used/" resolve against live/lalitha/.
 RUNS_FULL: dict[str, dict[str, list[str]]] = {
     "h0918": {
-        "real-LAP-noclip": [
+        "emg-noclip": [
             "emg_lap/h0918/h0918_k6_w01_full_AB06_corrected_seed0",
             "emg_lap/h0918/h0918_k6_w01_full_AB06_corrected_seed1",
             "emg_lap/h0918/h0918_k6_w01_full_AB06_corrected_seed2",
         ],
-        "real-LAP-clip": [
+        "emg-clip": [
             "emg_lap/h0918/h0918_k6_w01_full_clip_AB06_corrected_seed0",
         ],
         "mpo-full": [
@@ -122,7 +123,7 @@ RUNS_FULL: dict[str, dict[str, list[str]]] = {
     },
     # h1622/h2190: only old-recipe full-reward runs exist (k11, pooled decoder, clip)
     "h1622": {
-        "real-LAP-old": [
+        "emg-w01-old": [
             "not_used/early_tests/emg_lap/h1622/h1622_k11_w01_mirror_clip_net256_full_seed0",
         ],
         "mpo-full": [
@@ -130,7 +131,7 @@ RUNS_FULL: dict[str, dict[str, list[str]]] = {
         ],
     },
     "h2190": {
-        "real-LAP-old": [
+        "emg-w01-old": [
             "not_used/early_tests/emg_lap/h2190/h2190_k11_w01_mirror_clip_net256_full_seed0",
         ],
         "mpo-full": [
@@ -142,12 +143,12 @@ RUNS_FULL: dict[str, dict[str, list[str]]] = {
 CKPT_PREF: dict[str, int] = {"h2190": 18_000_000}
 # h2190 rarely completes an episode: relax the fall filter
 MIN_ROWS: dict[str, int] = {"h2190": 400}
-COLORS = {"real-LAP": "#d62728", "mpo": "#1f77b4", "dep-mpo": "#2ca02c",
+COLORS = {"emg-w01": "#d62728", "mpo": "#1f77b4", "dep-mpo": "#2ca02c",
           "null": "#7f7f7f", "loosen-GM": "#ff7f0e", "loosen-TA": "#9467bd",
-          "real-LAP-noclip": "#d62728", "real-LAP-clip": "#e377c2",
-          "real-LAP-old": "#d62728", "mpo-full": "#1f77b4",
-          "untrained": "#d55181", "real-LAP-w00": "#9ecae1", "real-LAP-w05": "#08519c",
-          "real-LAP-w01-seed0": "#3182bd"}
+          "emg-noclip": "#d62728", "emg-clip": "#e377c2",
+          "emg-w01-old": "#d62728", "mpo-full": "#1f77b4",
+          "untrained": "#d55181", "emg-w00": "#9ecae1", "emg-w05": "#08519c",
+          "emg-w01-seed0": "#3182bd"}
 
 
 def read_sto(path: Path) -> pd.DataFrame:
@@ -293,7 +294,7 @@ def f2(body: str, speed: float, tol: float, regime: str = "onlyvel",
     INK_MUTED = "#9aa0a6"
     HUMAN_FILL = "#c9cdd1"
     HUMAN_LINE = "#e8e8e8"
-    DECK_COLORS = {"real-LAP": "#e64545", "mpo": "#6fa8dc", "dep-mpo": "#f2c14e"}
+    DECK_COLORS = {"emg-w01": "#e64545", "mpo": "#6fa8dc", "dep-mpo": "#f2c14e"}
 
     runs = RUNS if regime == "onlyvel" else RUNS_FULL
     if body not in runs:
@@ -460,7 +461,7 @@ def f2_subject(body: str, speed: float, tol: float, ref_subject: str,
     import matplotlib.pyplot as plt
 
     INK, INK_MUTED, HUMAN_LINE = "#e8e8e8", "#9aa0a6", "#e8e8e8"
-    DECK_COLORS = {"real-LAP": "#e64545", "mpo": "#6fa8dc", "dep-mpo": "#f2c14e"}
+    DECK_COLORS = {"emg-w01": "#e64545", "mpo": "#6fa8dc", "dep-mpo": "#f2c14e"}
 
     if body not in RUNS:
         raise SystemExit(f"no runs defined for {body}")
@@ -681,9 +682,9 @@ def main():
                    help="use per-seed t* checkpoints from results/checkpoint_selection/")
     p.add_argument("--conditions", default=None,
                    help="comma-separated subset of conditions to plot, e.g. "
-                        "mpo,real-LAP (default: every condition defined for --body)")
+                        "mpo,emg-w01 (default: every condition defined for --body)")
     p.add_argument("--park-colors", action="store_true",
-                   help="recolor mpo orange / real-LAP blue, matching Park et al. "
+                   help="recolor mpo orange / emg-w01 blue, matching Park et al. "
                         "Fig 2's independent/synergistic convention")
     p.add_argument("--caption-order", action="store_true",
                    help="use Park et al. Fig 2's literal caption muscle order "

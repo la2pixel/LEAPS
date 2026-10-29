@@ -42,8 +42,7 @@ parser.add_argument("--threshold", type=float, default=0.6, help="latent_norm_pe
 parser.add_argument("--scale", type=float, default=0.9, help="latent_norm_penalty ramp scale")
 parser.add_argument("--depth", type=int, default=1, help="hidden layers per side (SynergyAE)")
 parser.add_argument(
-    "--suffix", default="", help="appended to the output dir name, e.g. '_corrected' "
-    "to avoid overwriting an existing decoder_k{k}_{subject} in place",
+    "--suffix", default="", help="appended to the output dir name, so the released decoder is not overwritten",
 )
 args = parser.parse_args()
 
