@@ -4,7 +4,7 @@
 
 ### Code accompanying *Learning Humanoid Locomotion from EMG-Based Latent Action Priors and Muscle Synergies*
 
-📄 [Thesis](assets/thesis.pdf) | 🎞️ [Slides](assets/slides.pptx)
+📄 [Thesis](assets/thesis.pdf) | 🎞️ [Thesis defense slides](assets/thesis_defense.pptx)
 
 ![Method overview](assets/method_overview.png)
 
