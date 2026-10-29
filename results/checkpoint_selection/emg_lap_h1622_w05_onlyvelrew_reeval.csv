@@ -1,3 +1,0 @@
-label,seed,t_star,score_at_tstar_curve,reeval_mean,reeval_sd,reeval_sem,fall_pct,reeval_min,episodes
-emg_lap_h1622_w05_onlyvelrew,seed0,16000000,968.3,983.8,68.4,6.84,3.0,512.7,100
-emg_lap_h1622_w05_onlyvelrew,seed1,10000000,989.0,988.5,94.2,9.42,1.0,53.0,100

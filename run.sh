@@ -80,7 +80,7 @@ SEL=results/checkpoint_selection
 # leaps kinematic-match --regime variants
 # leaps kinematic-match --regime full
 
-# 6. Remaining tables and figures (outputs in results/, see results/README.md):
+# 6. Remaining tables and figures (outputs in results/):
 # python -m leaps.analysis.fiber_length
 # python -m leaps.analysis.torso_oscillation
 # python -m leaps.analysis.kinematics_correlation

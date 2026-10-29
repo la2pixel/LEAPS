@@ -34,31 +34,5 @@ deps/
 # released decoders are tracked despite *.pt / *.npz above
 !priors/**
 
-# analysis outputs stay local, except the result tables listed in results/README.md
-results/*
-!results/README.md
-!results/checkpoint_selection/
-!results/biomech_fidelity/
-!results/gait_metrics/
-!results/synergy_ae_vs_linear/
-results/checkpoint_selection/*
-results/biomech_fidelity/*
-results/gait_metrics/*
-results/synergy_ae_vs_linear/*
-!results/checkpoint_selection/RETURN_TABLE.csv
-!results/checkpoint_selection/*_onlyvelrew.csv
-!results/checkpoint_selection/*_onlyvelrew_reeval.csv
-!results/checkpoint_selection/*_full.csv
-!results/checkpoint_selection/*_full_reeval.csv
-results/checkpoint_selection/reflex_feedback_*
-!results/biomech_fidelity/f2_h*_tstar_mpo-dep-mpo-null-untrained-real-LAP-w00-real-LAP-real-LAP-w05_captionorder.csv
-!results/biomech_fidelity/ksweep_h0918.csv
-!results/biomech_fidelity/KINEMATIC_MATCH_onlyvel.csv
-!results/biomech_fidelity/KINEMATIC_MATCH_variants.csv
-!results/biomech_fidelity/human_gait_band.npz
-!results/biomech_fidelity/kinematics_correlation.csv
-!results/gait_metrics/GAIT_METRICS.csv
-!results/gait_metrics/FIBER_LENGTH.csv
-!results/synergy_ae_vs_linear/r2_vs_k.csv
-!results/synergy_ae_vs_linear/per_muscle_reconstruction_r2.csv
-!results/synergy_ae_vs_linear/agonist_antagonist_by_k.csv
+# analysis outputs
+results/

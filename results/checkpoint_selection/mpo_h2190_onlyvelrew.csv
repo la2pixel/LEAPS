@@ -1,4 +1,0 @@
-label,seed,t_star,score_at_tstar,final10,run_dir
-mpo_h2190_onlyvelrew,seed0,6000000,524.8,142.8,lalitha/final_experiments/mpo/h2190/h2190_onlyvelrew_seed0
-mpo_h2190_onlyvelrew,seed1,8000000,571.3,445.1,lalitha/final_experiments/mpo/h2190/h2190_onlyvelrew_seed1
-mpo_h2190_onlyvelrew,seed2,6000000,151.0,112.8,lalitha/final_experiments/mpo/h2190/h2190_onlyvelrew_seed2

@@ -1,4 +1,0 @@
-label,seed,t_star,score_at_tstar,final10,run_dir
-null_h1622_onlyvelrew,seed0,4000000,987.2,860.6,lalitha/final_experiments/no_lap/h1622/h1622_k6_w05_onlyvelrew_AB06_corrected_null_seed0
-null_h1622_onlyvelrew,seed1,14000000,984.1,882.1,lalitha/final_experiments/no_lap/h1622/h1622_k6_w05_onlyvelrew_AB06_corrected_null_seed1
-null_h1622_onlyvelrew,seed2,20000000,984.1,991.2,lalitha/final_experiments/no_lap/h1622/h1622_k6_w05_onlyvelrew_AB06_corrected_null_seed2

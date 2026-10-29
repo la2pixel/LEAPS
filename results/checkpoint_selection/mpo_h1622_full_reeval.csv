@@ -1,4 +1,0 @@
-label,seed,t_star,score_at_tstar_curve,reeval_mean,reeval_sd,reeval_sem,fall_pct,reeval_min,episodes
-mpo_h1622_full,seed0,16000000,8744.9,8860.6,27.2,2.72,0.0,8775.6,100
-mpo_h1622_full,seed1,16000000,8374.0,8506.8,609.2,60.92,1.0,2460.0,100
-mpo_h1622_full,seed2,16000000,8187.8,8351.3,1189.7,118.97,3.0,450.0,100
