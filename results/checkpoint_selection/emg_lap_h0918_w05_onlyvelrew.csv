@@ -1,4 +1,4 @@
 label,seed,t_star,score_at_tstar,final10,run_dir
-emg_lap_h0918_w05_onlyvelrew,seed0,8000000,999.8,995.3,/media/calc_2/scone_results/live/lalitha/final_experiments/emg_lap/h0918/h0918_k6_w05_onlyvelrew_AB06_corrected_seed0
-emg_lap_h0918_w05_onlyvelrew,seed1,6000000,999.9,953.6,/media/calc_2/scone_results/live/lalitha/final_experiments/emg_lap/h0918/h0918_k6_w05_onlyvelrew_AB06_corrected_seed1
-emg_lap_h0918_w05_onlyvelrew,seed2,6000000,999.4,999.2,/media/calc_2/scone_results/live/lalitha/final_experiments/emg_lap/h0918/h0918_k6_w05_onlyvelrew_AB06_corrected_seed2
+emg_lap_h0918_w05_onlyvelrew,seed0,8000000,999.8,995.3,lalitha/final_experiments/emg_lap/h0918/h0918_k6_w05_onlyvelrew_AB06_corrected_seed0
+emg_lap_h0918_w05_onlyvelrew,seed1,6000000,999.9,953.6,lalitha/final_experiments/emg_lap/h0918/h0918_k6_w05_onlyvelrew_AB06_corrected_seed1
+emg_lap_h0918_w05_onlyvelrew,seed2,6000000,999.4,999.2,lalitha/final_experiments/emg_lap/h0918/h0918_k6_w05_onlyvelrew_AB06_corrected_seed2

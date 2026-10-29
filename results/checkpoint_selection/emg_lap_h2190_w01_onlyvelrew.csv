@@ -1,5 +1,5 @@
 label,seed,t_star,score_at_tstar,final10,run_dir
-emg_lap_h2190_w01_onlyvelrew,seed0,6000000,421.2,182.6,/media/calc_2/scone_results/live/lalitha/final_experiments/emg_lap/h2190/h2190_k6_w01_onlyvelrew_AB06_corrected_seed0
-emg_lap_h2190_w01_onlyvelrew,seed1,8000000,321.4,236.3,/media/calc_2/scone_results/live/lalitha/final_experiments/emg_lap/h2190/h2190_k6_w01_onlyvelrew_AB06_corrected_seed1
-emg_lap_h2190_w01_onlyvelrew,seed2,8000000,268.9,124.1,/media/calc_2/scone_results/live/lalitha/final_experiments/emg_lap/h2190/h2190_k6_w01_onlyvelrew_AB06_corrected_seed2
-emg_lap_h2190_w01_onlyvelrew,seed3,18000000,363.7,335.4,/media/calc_2/scone_results/live/lalitha/final_experiments/emg_lap/h2190/h2190_k6_w01_onlyvelrew_AB06_corrected_seed3
+emg_lap_h2190_w01_onlyvelrew,seed0,6000000,421.2,182.6,lalitha/final_experiments/emg_lap/h2190/h2190_k6_w01_onlyvelrew_AB06_corrected_seed0
+emg_lap_h2190_w01_onlyvelrew,seed1,8000000,321.4,236.3,lalitha/final_experiments/emg_lap/h2190/h2190_k6_w01_onlyvelrew_AB06_corrected_seed1
+emg_lap_h2190_w01_onlyvelrew,seed2,8000000,268.9,124.1,lalitha/final_experiments/emg_lap/h2190/h2190_k6_w01_onlyvelrew_AB06_corrected_seed2
+emg_lap_h2190_w01_onlyvelrew,seed3,18000000,363.7,335.4,lalitha/final_experiments/emg_lap/h2190/h2190_k6_w01_onlyvelrew_AB06_corrected_seed3

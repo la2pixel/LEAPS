@@ -25,7 +25,7 @@ from scipy.spatial import cKDTree
 
 from leaps.data import time_normalize_stride
 from leaps.envs.emg_mapping import MODEL_MAPS
-from leaps.paths import PRIORS_DIR, RESULTS_DIR
+from leaps.paths import PRIORS_DIR, RESULTS_DIR, SCONE_LIVE_DIR
 
 SEL = RESULTS_DIR / "checkpoint_selection"
 OUT = RESULTS_DIR / "prior_usage"
@@ -55,7 +55,7 @@ def rollout(body, w, seed):
 
     row = next(r for r in _selection(body, w) if r["seed"] == seed)
     step = int(row["t_star"])
-    env, agent = build_env_and_agent(find_ts_dir(row["run_dir"], step), step)
+    env, agent = build_env_and_agent(find_ts_dir(str(SCONE_LIVE_DIR / row["run_dir"]), step), step)
     W = _latent_wrapper(env)
     k = W.dim_latent
     model = env.unwrapped.model

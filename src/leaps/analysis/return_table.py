@@ -234,7 +234,7 @@ def _curves_fig():
         for m in MORDER:
             sel = f"{O}/{_label_for(m, body)}.csv"
             if os.path.exists(sel):
-                md[m] = [r["run_dir"] for r in csv.DictReader(open(sel))]
+                md[m] = [str(SCONE_LIVE_DIR / r["run_dir"]) for r in csv.DictReader(open(sel))]
         _one_curve_panel(body, md, 20, 780 if body == "h2190" else 1060,
                          "test episode return",
                          f"{O}/learning_curve_{body}.png")

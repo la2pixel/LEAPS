@@ -23,7 +23,7 @@ import os
 import statistics
 import sys
 
-from leaps.paths import RESULTS_DIR
+from leaps.paths import RESULTS_DIR, SCONE_LIVE_DIR
 
 SAVE_STEP = 2_000_000
 NOMINAL_BUDGET = 20_000_000
@@ -165,7 +165,7 @@ def main():
         rows_out.append(dict(label=args.label, seed=r["seed"], t_star=tstar,
                              score_at_tstar=round(score_star, 1),
                              final10=round(final10, 1),
-                             run_dir=r["dir"]))
+                             run_dir=os.path.relpath(r["dir"], SCONE_LIVE_DIR)))
         print(f"{r['seed']:>6} {tstar/1e6:>7.0f} {score_star:>9.1f} "
               f"{final10:>8.1f} {tail5:>10.1f} {score_star - final10:>10.1f}")
 

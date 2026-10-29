@@ -272,7 +272,7 @@ def load_tstar_map():
         if not rdr.fieldnames or "run_dir" not in rdr.fieldnames:
             continue  # not a select_checkpoint output (e.g. RETURN_TABLE.csv)
         for row in rdr:
-            rd = row["run_dir"].rstrip("/")
+            rd = str(SCONE_LIVE_DIR / row["run_dir"]).rstrip("/")
             for pref in (str(LIVE) + "/", str(LIVE.parent) + "/"):
                 if rd.startswith(pref):
                     rd = rd[len(pref):]

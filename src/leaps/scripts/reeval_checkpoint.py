@@ -17,6 +17,8 @@ import time
 
 import yaml
 
+from leaps.paths import SCONE_LIVE_DIR
+
 
 def find_ts_dir(parent, step):
     """The <timestamp>/ dir under `parent` whose checkpoints/ has step_<N>.pt."""
@@ -94,7 +96,7 @@ def main():
     print(hdr); print("-" * len(hdr))
 
     for r in rows:
-        parent, step = r["run_dir"], int(r["t_star"])
+        parent, step = str(SCONE_LIVE_DIR / r["run_dir"]), int(r["t_star"])
         ts = find_ts_dir(parent, step)
         if ts is None:
             print(f"{r['seed']:>6}  !! no checkpoint step_{step} under {parent}", file=sys.stderr)

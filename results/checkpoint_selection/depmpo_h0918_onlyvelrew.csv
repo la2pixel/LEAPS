@@ -1,4 +1,4 @@
 label,seed,t_star,score_at_tstar,final10,run_dir
-depmpo_h0918_onlyvelrew,seed0,10000000,999.2,996.9,/media/calc_2/scone_results/live/lalitha/final_experiments/dep-mpo/h0918/h0918_onlyvelrew_dep_seed0
-depmpo_h0918_onlyvelrew,seed1,20000000,999.7,994.9,/media/calc_2/scone_results/live/lalitha/final_experiments/dep-mpo/h0918/h0918_onlyvelrew_dep_seed1
-depmpo_h0918_onlyvelrew,seed2,8000000,999.5,996.8,/media/calc_2/scone_results/live/lalitha/final_experiments/dep-mpo/h0918/h0918_onlyvelrew_dep_seed2
+depmpo_h0918_onlyvelrew,seed0,10000000,999.2,996.9,lalitha/final_experiments/dep-mpo/h0918/h0918_onlyvelrew_dep_seed0
+depmpo_h0918_onlyvelrew,seed1,20000000,999.7,994.9,lalitha/final_experiments/dep-mpo/h0918/h0918_onlyvelrew_dep_seed1
+depmpo_h0918_onlyvelrew,seed2,8000000,999.5,996.8,lalitha/final_experiments/dep-mpo/h0918/h0918_onlyvelrew_dep_seed2

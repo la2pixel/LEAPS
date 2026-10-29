@@ -1,4 +1,4 @@
 label,seed,t_star,score_at_tstar,final10,run_dir
-emg_lap_h0918_w01_full,seed0,10000000,9229.8,5799.7,/media/calc_2/scone_results/live/lalitha/final_experiments/emg_lap/h0918/h0918_k6_w01_full_AB06_corrected_seed0
-emg_lap_h0918_w01_full,seed1,10000000,9125.1,9060.3,/media/calc_2/scone_results/live/lalitha/final_experiments/emg_lap/h0918/h0918_k6_w01_full_AB06_corrected_seed1
-emg_lap_h0918_w01_full,seed2,10000000,9168.9,9202.4,/media/calc_2/scone_results/live/lalitha/final_experiments/emg_lap/h0918/h0918_k6_w01_full_AB06_corrected_seed2
+emg_lap_h0918_w01_full,seed0,10000000,9229.8,5799.7,lalitha/final_experiments/emg_lap/h0918/h0918_k6_w01_full_AB06_corrected_seed0
+emg_lap_h0918_w01_full,seed1,10000000,9125.1,9060.3,lalitha/final_experiments/emg_lap/h0918/h0918_k6_w01_full_AB06_corrected_seed1
+emg_lap_h0918_w01_full,seed2,10000000,9168.9,9202.4,lalitha/final_experiments/emg_lap/h0918/h0918_k6_w01_full_AB06_corrected_seed2
