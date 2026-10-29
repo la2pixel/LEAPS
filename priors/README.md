@@ -6,18 +6,18 @@ Every folder is the output of
 
 ```bash
 python -m leaps.scripts.train_single_subject_decoder --subject AB06 --k <k> \
-  --threshold 0.6 --scale 0.9 --depth 1 --seed 0 --suffix _corrected
+  --threshold 0.6 --scale 0.9 --depth 1 --seed 0
 ```
 
 Rerunning it reproduces `decoder.pt` and `norm.npz` bit for bit, and overwrites the folder.
 
 | folder | latent dim | held-out R² | used for |
 |---|---|---|---|
-| `decoder_k2_AB06_corrected` | 2 | 0.63 | latent dimension sweep |
-| `decoder_k4_AB06_corrected` | 4 | 0.84 | latent dimension sweep |
-| `decoder_k6_AB06_corrected` | 6 | 0.94 | all other experiments |
-| `decoder_k8_AB06_corrected` | 8 | 0.97 | latent dimension sweep |
-| `decoder_k11_AB06_corrected` | 11 | 0.98 | latent dimension sweep |
+| `decoder_k2_AB06` | 2 | 0.63 | latent dimension sweep |
+| `decoder_k4_AB06` | 4 | 0.84 | latent dimension sweep |
+| `decoder_k6_AB06` | 6 | 0.94 | all other experiments |
+| `decoder_k8_AB06` | 8 | 0.97 | latent dimension sweep |
+| `decoder_k11_AB06` | 11 | 0.98 | latent dimension sweep |
 
 Files in each folder:
 
