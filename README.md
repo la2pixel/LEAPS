@@ -4,6 +4,8 @@
 
 ### Code accompanying *Learning Humanoid Locomotion from EMG-Based Latent Action Priors and Muscle Synergies*
 
+📄 [Thesis](assets/thesis.pdf) | 🎞️ [Slides](assets/slides.pptx)
+
 ![Method overview](assets/method_overview.png)
 
 A small autoencoder is trained on surface EMG from one human subject (Camargo et al. 2021). Its frozen decoder becomes part of the environment: the RL policy outputs a latent `z` plus a residual, and the decoder turns `z` into muscle excitations. It is evaluated with MPO and DEP-MPO on three musculoskeletal models in SCONE/Hyfydy: H0918 (2D, 18 muscles), H1622 (3D, 22) and H2190 (3D, 90).
