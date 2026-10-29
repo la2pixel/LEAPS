@@ -1,23 +1,11 @@
-"""Synergy autoencoder, its loss and training loop, shared by the decoder training and analysis scripts."""
+"""Synergy autoencoder, its latent penalty and training loop."""
 
 import numpy as np
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader, TensorDataset
 
-from leaps.data.metadata import ALL_MODES, LEAPS_H5_PATH
-from leaps.data.stride_dataset import load_strides, stride_train_val_split
-from leaps.paths import RESULTS_DIR
-
 torch.set_num_threads(1)
-
-CACHE_DIR = RESULTS_DIR / "synergy"
-
-
-def r2(x, x_hat):
-    ss_res = ((x - x_hat) ** 2).sum()
-    ss_tot = ((x - x.mean(axis=0)) ** 2).sum()
-    return 1 - ss_res / ss_tot
 
 
 class SynergyAE(nn.Module):
@@ -100,35 +88,3 @@ def train_ae(
                 val_loss = ((x - model(x)[0]) ** 2).sum(dim=-1).mean().item()
             history.append((float(np.mean(batch_losses)), val_loss))
     return model
-
-
-def prepare_training_arrays(seed: int = 42, val_fraction: float = 0.2, n_sub: int = 50_000) -> dict:
-    """Per-stride-P99 normalization to [0, 1] and sin/cos gait phase per
-    frame, as in get_synergies.py."""
-    strides, meta = load_strides(LEAPS_H5_PATH, modes=ALL_MODES, with_metadata=True)
-    strides_train, strides_val, meta_train, meta_val = stride_train_val_split(
-        strides, meta, val_fraction=val_fraction, seed=seed
-    )
-    stride_p99s = np.percentile(strides_train, 99, axis=1)
-    global_divisors = stride_p99s.mean(axis=0) + 1e-8
-
-    def to_unit(strides_3d: np.ndarray) -> np.ndarray:
-        return np.clip(strides_3d / global_divisors, 0.0, 1.0).astype(np.float32)
-
-    def phase_sincos(n_strides: int) -> np.ndarray:
-        frac = np.tile(np.linspace(0.0, 1.0, 101, dtype=np.float32), n_strides)
-        return np.stack([np.sin(2 * np.pi * frac), np.cos(2 * np.pi * frac)], axis=1)
-
-    X_train = to_unit(strides_train).reshape(-1, 11)
-    X_val = to_unit(strides_val).reshape(-1, 11)
-    phase_train = phase_sincos(strides_train.shape[0])
-    phase_val = phase_sincos(strides_val.shape[0])
-
-    rng_sub = np.random.default_rng(0)
-    sub_idx = rng_sub.choice(len(X_train), size=min(n_sub, len(X_train)), replace=False)
-
-    return dict(
-        X_train=X_train, X_val=X_val, phase_train=phase_train, phase_val=phase_val,
-        X_train_sub=X_train[sub_idx], phase_train_sub=phase_train[sub_idx],
-        global_divisors=global_divisors, meta_val=meta_val,
-    )

@@ -1,1 +1,1 @@
-"""Synergy extraction and rollout extractors, run as `python -m leaps.models.<name>`."""
+"""Synergy autoencoder used for the EMG decoders."""

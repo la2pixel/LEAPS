@@ -24,7 +24,7 @@ from sklearn.decomposition import PCA
 from leaps.data.metadata import ALL_MODES, LEAPS_H5_PATH, SUBJECTS
 from leaps.data.stride_dataset import load_strides
 from leaps.paths import PRIORS_DIR
-from leaps.synergy_common import train_ae
+from leaps.models.autoencoder import train_ae
 
 EPOCHS = 50
 
