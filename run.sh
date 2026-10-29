@@ -62,9 +62,8 @@ SEL=results/checkpoint_selection
 # leaps select-checkpoint $F/emg_lap/h1622/h1622_k6_w01_onlyvelrew_AB06_corrected_seed{0,1,2} \
 #   --label emg_lap_h1622_w01_onlyvelrew --budget 20000000
 # leaps reeval-checkpoint --selection $SEL/emg_lap_h1622_w01_onlyvelrew.csv --episodes 100
-#     Labels used in results/: {mpo,depmpo,null}_<body>_<reward>, emg_lap_<body>_<w00|w01|w05>_<reward>,
+#     Labels used for the thesis: {mpo,depmpo,null}_<body>_<reward>, emg_lap_<body>_<w00|w01|w05>_<reward>,
 #     untrainedlap_<body>_w05_<reward>; H0918 full reward uses --budget 10000000.
-# python -m leaps.analysis.return_table            # -> $SEL/RETURN_TABLE.csv
 
 # 5b. rollouts at t* (.sto files in <run>/<timestamp>/run_checkpoint_<t*>/), one call per seed
 #     with t* from the selection csv:
@@ -79,12 +78,3 @@ SEL=results/checkpoint_selection
 # leaps kinematic-match --regime onlyvel
 # leaps kinematic-match --regime variants
 # leaps kinematic-match --regime full
-
-# 6. Remaining tables and figures (outputs in results/):
-# python -m leaps.analysis.fiber_length
-# python -m leaps.analysis.torso_oscillation
-# python -m leaps.analysis.kinematics_correlation
-# python -m leaps.analysis.kinematics_combined_vs_backbones
-# python -m leaps.analysis.kinetics_combined_vs_backbones
-# python -m leaps.analysis.ae_vs_linear_synergies
-# python -m leaps.analysis.plot_thesis_curves_light

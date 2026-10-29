@@ -23,12 +23,13 @@ dist/
 *.pth
 *.ckpt
 
-# local only: run configs and logs, notebooks, notes, forks cloned by setup.sh
+# local only: run configs and logs, notebooks, notes, thesis analysis scripts, forks cloned by setup.sh
 baselines_DEPRL/
 wandb/
 renders/
 notebooks/
 notes/
+extras/
 deps/
 
 # released decoders are tracked despite *.pt / *.npz above
