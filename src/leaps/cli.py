@@ -8,8 +8,7 @@ Data:
     eda                 EMG pipeline diagnostic plots (raw → rectified → strides)
 
 Config generation:
-    launch              Generate configs for the locked-in production set (k=6, w=0.5, unclipped)
-    launch-explore      Generate configs for any RunSpec knob combination, sweeps
+    launch              Write deprl configs for a sweep (defaults: k=6, w=0.5, unclipped)
 
 Evaluation (after RL training):
     select-checkpoint   Pick t* per run from the training curves
@@ -27,8 +26,7 @@ _COMMANDS: dict[str, tuple[str, str]] = {
     "preprocess":          ("leaps.data.build_h5",                  "main"),
     "eda":                 ("leaps.scripts.eda_emg",                "main"),
     # Config generation
-    "launch":              ("leaps.scripts.launch_locked",          "main"),
-    "launch-explore":      ("leaps.scripts.launch_explore",         "main"),
+    "launch":              ("leaps.scripts.launch",                 "main"),
     # Evaluation
     "select-checkpoint":   ("leaps.scripts.select_checkpoint",      "main"),
     "reeval-checkpoint":   ("leaps.scripts.reeval_checkpoint",      "main"),
