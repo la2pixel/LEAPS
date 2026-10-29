@@ -1,7 +1,7 @@
 """Latent-action-prior wrapper for SCONE/Hyfydy gym envs.
 
 The policy outputs a latent z (dim k) plus a full-size residual a_full. A
-frozen EMG decoder (priors/decoder_k*_AB06_corrected) maps z to 11 EMG
+frozen EMG decoder (priors/decoder_k*_AB06) maps z to 11 EMG
 channels, EMGToMuscleMapper maps those onto the model's muscles, and the two
 are blended per actuator:
 
