@@ -6,7 +6,9 @@
 
 A small autoencoder is trained on surface EMG from one human subject (Camargo et al. 2021). Its frozen decoder becomes part of the environment: the RL policy outputs a latent `z` plus a residual, and the decoder turns `z` into muscle excitations. It is evaluated with MPO and DEP-MPO on three musculoskeletal models in SCONE/Hyfydy: H0918 (2D, 18 muscles), H1622 (3D, 22) and H2190 (3D, 90).
 
-<!-- videos: LEAPS vs MPO / DEP-MPO -->
+| H0918 | H1622 | H2190 |
+|:---:|:---:|:---:|
+| ![LEAPS on H0918](assets/videos/leaps_h0918.gif) | ![LEAPS on H1622](assets/videos/leaps_h1622.gif) | ![LEAPS on H2190](assets/videos/leaps_h2190.gif) |
 
 **How the prior works**: The decoder lives inside the environment (`src/leaps/envs/latent_env.py`), so MPO and DEP-MPO train on it without any change to the algorithms. The policy outputs a latent `z` and one residual per muscle. The decoder turns `z` into 11 EMG channels, which are mapped onto the model's muscles and blended with the residual as `(1 - w) * a_hat + w * a_residual`. Muscles without a recorded EMG channel are driven by the residual alone. The right leg was recorded, and the left leg gets the same signal. The decoder is never updated during RL. As controls, the same wrapper can replace the decoder output with zeros (null prior) or use a decoder with random weights (untrained decoder).
 
