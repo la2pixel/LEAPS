@@ -10,14 +10,14 @@ from pathlib import Path
 import yaml
 
 from leaps.configs.naming import derive_run_name
-from leaps.configs.spec import ExperimentGroup, RunSpec
+from leaps.configs.spec import RunSpec
 
 
 def config_path(spec: RunSpec) -> Path:
     """Must match naming.derive_tonic_name(). Non-default recipes in
     final_experiments go under other/."""
-    root = Path(spec.baselines_root) / spec.experiment_group.value
-    if spec.experiment_group == ExperimentGroup.FINAL_EXPERIMENTS and not spec.is_default_recipe:
+    root = Path(spec.baselines_root) / "final_experiments"
+    if not spec.is_default_recipe:
         root = root / "other"
     return root / spec.category.value / spec.body / derive_run_name(spec) / "config.yaml"
 
@@ -31,13 +31,10 @@ def write_config(spec: RunSpec, cfg: dict, *, overwrite: bool = False) -> Path:
     return path
 
 
-_GROUP_DIR_NAMES = {g.value for g in ExperimentGroup}
-
-
 def _infer_baselines_root(path: Path) -> Path | None:
-    """Parent of the <group> dir (final_experiments / early_tests) above a config.yaml."""
+    """Parent of the final_experiments dir above a config.yaml."""
     for parent in path.parents:
-        if parent.name in _GROUP_DIR_NAMES:
+        if parent.name == "final_experiments":
             return parent.parent
     return None
 

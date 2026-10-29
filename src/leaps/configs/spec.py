@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Optional
 
-from leaps.paths import PRIORS_DIR, RESULTS_DIR, RUNS_DIR
+from leaps.paths import PRIORS_DIR, RUNS_DIR
 
 # body
 BODIES = {"h0918": 18, "h1622": 22, "h2190": 90}
@@ -24,28 +24,15 @@ LAP_CATEGORIES = frozenset(
 )
 
 
-class ExperimentGroup(str, Enum):
-    # runs before 2026-08-15 live under early_tests/
-    EARLY_TESTS = "early_tests"
-    FINAL_EXPERIMENTS = "final_experiments"
-
 class RewardVariant(str, Enum):
     FULL = "full"
     ONLYVELREW = "onlyvelrew"
-    GAUSSIANVEL = "gaussianvel"
-
-class DecoderSource(str, Enum):
-    POOLED = "pooled"
-    AB06 = "AB06"
-    AB20 = "AB20"
-    AB06_CORRECTED = "AB06_corrected"  # depth=1, threshold=0.6, scale=0.9
 
 
 @dataclass(frozen=True)
 class RunSpec:
     category: Category
     body: str
-    experiment_group: ExperimentGroup = ExperimentGroup.FINAL_EXPERIMENTS
     reward_variant: RewardVariant = RewardVariant.FULL
     seed: int = 0
 
@@ -60,8 +47,6 @@ class RunSpec:
     loosened_actuators: tuple[str, ...] = ()
     loosened_residual_weight: Optional[float] = None
     mirror_left: bool = True
-    mirror_mode: str = "static"
-    decoder_source: DecoderSource = DecoderSource.POOLED
 
     # DEP-MPO only; value from the DEP-RL authors' shipped configs
     dep_kappa: int = 1000
@@ -69,9 +54,6 @@ class RunSpec:
     resume: bool = True
     steps: str = "2e7"  # training budget, environment steps
 
-    # non-released decoders; final_experiments looks under f"{synergy_root}_priors/"
-    synergy_root: str = str(RESULTS_DIR / "synergy")
-    # released decoders (AB06_corrected, one per k) live here instead
     priors_root: str = str(PRIORS_DIR)
     baselines_root: str = str(RUNS_DIR)
 
@@ -82,8 +64,6 @@ class RunSpec:
             raise ValueError(f"dim_latent must be positive, got {self.dim_latent}")
         if self.net_size <= 0:
             raise ValueError(f"net_size must be positive, got {self.net_size}")
-        if self.mirror_mode != "static":
-            raise ValueError(f"mirror_mode must be 'static' (phase mirroring removed 2026-08-18), got {self.mirror_mode!r}")
         if bool(self.loosened_actuators) != (self.loosened_residual_weight is not None):
             raise ValueError(
                 "loosened_actuators and loosened_residual_weight must be set together "

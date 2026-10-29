@@ -5,15 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from leaps.configs.naming import derive_tags, derive_tonic_name, derive_wandb_group, derive_wandb_name
-from leaps.configs.spec import Category, DecoderSource, ExperimentGroup, RewardVariant, RunSpec
-
-# decoder layout under results/synergy_priors/ for non-released decoders
-_DECODER_CATEGORY = {
-    DecoderSource.POOLED: "pooled_subjects",
-    DecoderSource.AB06: "single_subject",
-    DecoderSource.AB20: "single_subject",
-    DecoderSource.AB06_CORRECTED: "single_subject",
-}
+from leaps.configs.spec import Category, RewardVariant, RunSpec
 
 # Reward variants
 _ENV_ARGS_BY_VARIANT = {
@@ -28,16 +20,12 @@ _ENV_ARGS_BY_VARIANT = {
     RewardVariant.ONLYVELREW: dict(
         vel_coeff=1, grf_coeff=0, joint_limit_coeff=0, nmuscle_coeff=0, smooth_coeff=0, self_contact_coeff=0
     ),
-    RewardVariant.GAUSSIANVEL: dict(
-        vel_coeff=1, grf_coeff=0, joint_limit_coeff=0, nmuscle_coeff=0, smooth_coeff=0, self_contact_coeff=0
-    ),
 }
 
 # Gym id for registration in sconegym/sconegym/init_v0.py.
 _GYM_SUFFIX_BY_VARIANT = {
     RewardVariant.FULL: "",
     RewardVariant.ONLYVELREW: "_onlyVelRew",
-    RewardVariant.GAUSSIANVEL: "_gaussianVel",
 }
 
 # DEP parameters from the DEP-RL authors' shipped configs for these bodies
@@ -81,26 +69,11 @@ def _gym_id(spec: RunSpec) -> str:
 
 
 def _decoder_paths(spec: RunSpec) -> tuple[str, str]:
-    suffix = "" if spec.decoder_source.value == "pooled" else f"_{spec.decoder_source.value}"
-    decoder_name = f"decoder_k{spec.dim_latent}{suffix}"
-    if spec.experiment_group == ExperimentGroup.FINAL_EXPERIMENTS and spec.decoder_source == DecoderSource.AB06_CORRECTED:
-        decoder_dir = f"{spec.priors_root}/{decoder_name}"
-    elif spec.experiment_group == ExperimentGroup.FINAL_EXPERIMENTS:
-        category = _DECODER_CATEGORY[spec.decoder_source]
-        decoder_dir = f"{spec.synergy_root}_priors/{category}/{decoder_name}"
-    else:
-        decoder_dir = f"{spec.synergy_root}/{decoder_name}"
-    decoder_path = f"{decoder_dir}/decoder.pt"
-    norm_path = f"{decoder_dir}/norm.npz"
-    # early_tests configs are history: their decoders may no longer exist
-    if spec.experiment_group == ExperimentGroup.FINAL_EXPERIMENTS and (
-        not Path(decoder_path).exists() or not Path(norm_path).exists()
-    ):
-        raise FileNotFoundError(
-            f"decoder for k={spec.dim_latent}, source={spec.decoder_source.value} does not exist "
-            f"at {decoder_dir}/ - train it first, or pick a different dim_latent/decoder_source."
-        )
-    return decoder_path, norm_path
+    decoder_dir = Path(spec.priors_root) / f"decoder_k{spec.dim_latent}_AB06"
+    decoder_path, norm_path = decoder_dir / "decoder.pt", decoder_dir / "norm.npz"
+    if not decoder_path.exists() or not norm_path.exists():
+        raise FileNotFoundError(f"no decoder for k={spec.dim_latent} in {decoder_dir}/, train it first")
+    return str(decoder_path), str(norm_path)
 
 
 def _agent_expr(spec: RunSpec) -> str:
