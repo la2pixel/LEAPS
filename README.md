@@ -2,7 +2,7 @@
 
 [![tests](https://github.com/la2pixel/LEAPS/actions/workflows/tests.yml/badge.svg)](https://github.com/la2pixel/LEAPS/actions/workflows/tests.yml)
 
-### *LEAPS- Learning Humanoid Locomotion from EMG-Based Latent Action Priors and Muscle Synergies
+### LEAPS- Learning Humanoid Locomotion from EMG-Based Latent Action Priors and Muscle Synergies
 
 📄 [Thesis](assets/thesis.pdf) | 🎞️ [Thesis defense slides](assets/thesis_defense.pptx)
 
