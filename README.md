@@ -14,7 +14,7 @@ A small autoencoder is trained on surface EMG from one human subject (Camargo et
 |:---:|:---:|:---:|
 | ![LEAPS on H0918](assets/videos/leaps_h0918.gif) | ![LEAPS on H1622](assets/videos/leaps_h1622.gif) | ![LEAPS on H2190](assets/videos/leaps_h2190.gif) |
 
-On H2190, compared with the baselines:
+On H2190, compared with the baselines at the best checkpoint:
 
 | DEP-MPO | MPO | LEAPS |
 |:---:|:---:|:---:|
